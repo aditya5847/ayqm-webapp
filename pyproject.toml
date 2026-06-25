@@ -1,0 +1,35 @@
+[project]
+name = "ayqm-webapp"
+version = "0.1.0"
+description = "FastAPI backend for uploading podcast episodes, transcribing audio, and extracting trivia."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ayqm-transcribe",
+    "duckdb>=1.4.3",
+    "fastapi[standard]>=0.125.0",
+    "pydantic-settings>=2.12.0",
+    "python-multipart>=0.0.20",
+    "uvicorn[standard]>=0.38.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=0.28.2",
+    "pytest>=9.0.2",
+]
+
+[tool.uv]
+environments = [
+  "sys_platform == 'darwin'"
+]
+
+[tool.uv.sources]
+ayqm-transcribe = { path = "../ayqm-transcribe", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.fastapi]
+entrypoint = "backend.app.main:app"
