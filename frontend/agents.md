@@ -12,5 +12,11 @@ FastAPI backend endpoints and poll job status via `GET /jobs/{job_id}`.
 - Send `speaker_ids` as an array of ID strings, not speaker objects.
 - Episode objects use `episode_title`; do not use `title`, `show_title`, or
   `show_name`.
-- Trivia items may include `asker`, which is resolved from diarization speaker
-  mappings.
+- Transcription diarizes by default and requires `HF_TOKEN` on the backend.
+- Before trivia extraction, show `/episodes/{episode_id}/speaker-labels` so the
+  user can listen to max-3-second sample clips and map labels like `SPEAKER_00`
+  to selected speakers.
+- Trivia extraction is blocked until all detected speaker labels are mapped.
+- Trivia items may include top-level `asker`, which is the resolved real
+  speaker. Do not display `speaker_diarization.asker_speaker` as the speaker ID;
+  that nested value is the raw label such as `SPEAKER_00`.

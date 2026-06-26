@@ -16,6 +16,8 @@ known episode speakers.
 - Episode responses use `episode_title`; do not add back `title`, `show_title`,
   or `show_name`.
 - Speaker CRUD lives under `/speakers`.
+- Speaker label summaries and max-3-second cached MP3 samples live under
+  `/episodes/{episode_id}/speaker-labels`.
 - Episode speaker mappings live under
   `/episodes/{episode_id}/speaker-mapping`.
 
@@ -24,13 +26,15 @@ known episode speakers.
 - Device: `cpu`
 - Compute type: `int8`
 - Batch size: `16`
-- Diarization: disabled unless requested
+- Diarization: enabled by default unless explicitly disabled in the request
 
 ## Processing
 - Jobs are stored in DuckDB before background work starts.
 - Background workers update job status to `running`, `succeeded`, or `failed`.
-- Trivia extraction requires a completed transcript.
-- `HF_TOKEN` is only required for diarization.
+- Trivia extraction requires a completed diarized transcript and full speaker
+  mapping.
+- `HF_TOKEN` is required for default diarized transcription unless the request
+  explicitly sets `diarize` to `false`.
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` is required in the ayqm-webapp process
   environment for trivia extraction. Put it in the repo-root `.env` for local
   development; do not commit `.env`.
@@ -40,9 +44,20 @@ known episode speakers.
 - When diarization is enabled, selected episode speakers are used only as
   speaker-count hints (`min_speakers`/`max_speakers`). The current
   `ayqm-transcribe` API does not accept known speaker identities.
+- Speaker sample clips are generated with `ffmpeg`, capped at 3 seconds, cached
+  per episode under `data/episodes/{episode_id}/speaker_samples/`, and reused
+  for that episode.
 - Trivia `asker` is resolved from `speaker_diarization.asker_speaker` through
   the episode speaker mapping. Without diarization/mapping, `asker` remains
   `null`.
+- API consumers should use top-level `asker` as the resolved speaker. The nested
+  `speaker_diarization.asker_speaker` value is raw model output such as
+  `SPEAKER_00`.
+- Ignore extractor-provided trivia IDs for storage. Persist trivia IDs as
+  `{episode_id}-trivia-{index}` to avoid collisions across episodes.
+- WhisperX 3.8.x exposes diarization at `whisperx.diarize.DiarizationPipeline`;
+  keep the webapp compatibility shim unless `ayqm-transcribe` fully handles this
+  API shape.
 
 ## Storage
 - DuckDB path defaults to `data/ayqm.duckdb`.

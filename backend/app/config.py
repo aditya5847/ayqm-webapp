@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     whisper_compute_type: str = Field(default="int8", alias="AYQM_WHISPER_COMPUTE_TYPE")
     whisper_batch_size: int = Field(default=16, alias="AYQM_WHISPER_BATCH_SIZE")
     gemini_model: str | None = Field(default=None, alias="AYQM_GEMINI_MODEL")
+    ffmpeg_path: str = Field(default="ffmpeg", alias="AYQM_FFMPEG_PATH")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -26,4 +27,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

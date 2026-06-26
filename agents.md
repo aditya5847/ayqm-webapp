@@ -38,6 +38,13 @@ root-level `frontend/` folder.
   selected at upload time. Diarization label mappings can later map labels such
   as `SPEAKER_00` to selected episode speakers so trivia items can expose
   `asker`.
+- Transcription diarizes by default. Speaker labels must be mapped before trivia
+  extraction. Mapping UI should use `GET /episodes/{episode_id}/speaker-labels`
+  and the per-label sample clip endpoints.
+- Trivia API consumers should use the top-level `asker` object for real speaker
+  identity. `speaker_diarization.asker_speaker` is the raw diarization label.
+- Stored trivia row IDs are generated as `{episode_id}-trivia-{index}` because
+  extractor-provided IDs can repeat across episodes.
 
 ## Current API Notes
 - `POST /episodes` is multipart form data with fields: `file`,
@@ -46,8 +53,10 @@ root-level `frontend/` folder.
   `speaker_ids`, and optional JSON-string `extra_metadata`.
 - Speaker CRUD is exposed under `/speakers`.
 - Background job status is read from `GET /jobs/{job_id}`.
-- Trivia extraction requires a completed transcript and a Gemini/Google API key
-  in the webapp process environment.
+- Trivia extraction requires a completed diarized transcript, full speaker-label
+  mapping, and a Gemini/Google API key in the webapp process environment.
+- Diarization also requires `HF_TOKEN`, accepted Pyannote model terms, and a
+  compatible local Pyannote/TorchCodec/FFmpeg setup.
 
 ## Vector Search Roadmap
 Embeddings are deferred. When ready, choose an embedding provider and fixed vector

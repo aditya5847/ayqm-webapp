@@ -40,6 +40,29 @@ class SpeakerMappingOut(BaseModel):
     mappings: dict[str, SpeakerOut] = Field(default_factory=dict)
 
 
+class SpeakerLabelSample(BaseModel):
+    start: float
+    end: float
+    text: str
+    sample_clip_url: str | None = None
+
+
+class SpeakerLabelOut(BaseModel):
+    label: str
+    segment_count: int
+    first_seen: float
+    last_seen: float
+    samples: list[SpeakerLabelSample] = Field(default_factory=list)
+    sample_clip_url: str
+
+
+class SpeakerLabelsOut(BaseModel):
+    episode_id: str
+    speakers: list[SpeakerOut] = Field(default_factory=list)
+    mappings: dict[str, SpeakerOut] = Field(default_factory=dict)
+    labels: list[SpeakerLabelOut] = Field(default_factory=list)
+
+
 class AskerOut(BaseModel):
     id: str
     name: str
@@ -85,7 +108,7 @@ class TranscriptionRequest(BaseModel):
     device: str | None = None
     compute_type: str | None = None
     batch_size: int | None = Field(default=None, ge=1)
-    diarize: bool = False
+    diarize: bool = True
     hf_token: str | None = None
     min_speakers: int | None = Field(default=None, ge=1)
     max_speakers: int | None = Field(default=None, ge=1)

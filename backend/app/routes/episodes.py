@@ -1,8 +1,10 @@
 import json
+import os
 import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from ..config import get_settings
@@ -24,6 +26,7 @@ from ..schemas import (
     EpisodeOut,
     JobAccepted,
     ProcessRequest,
+    SpeakerLabelsOut,
     SpeakerMappingIn,
     SpeakerMappingOut,
     TranscriptOut,
@@ -31,6 +34,7 @@ from ..schemas import (
     TriviaExtractionRequest,
     TriviaItemOut,
 )
+from ..services.speaker_labels import ensure_sample_clip, sanitize_label, speaker_labels_from_transcript, summarize_speaker_labels
 from ..workers import extract_trivia_job, process_episode_job, transcribe_episode_job
 
 router = APIRouter(prefix="/episodes", tags=["episodes"])
@@ -80,6 +84,61 @@ def _require_episode(episode_id: str) -> dict:
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
     return episode
+
+
+def _has_hf_token(request: TranscriptionRequest) -> bool:
+    return bool(request.hf_token or os.environ.get("HF_TOKEN"))
+
+
+def _validate_transcription_request(request: TranscriptionRequest) -> None:
+    if request.diarize and not _has_hf_token(request):
+        raise HTTPException(status_code=422, detail="HF_TOKEN is required for diarization")
+
+
+def _speaker_label_summary(episode_id: str, episode: dict, transcript: dict, settings) -> list[dict]:
+    labels = summarize_speaker_labels(transcript)
+    sample_dir = settings.episode_root / episode_id / "speaker_samples"
+    for label in labels:
+        for index, sample in enumerate(label["samples"]):
+            ensure_sample_clip(
+                ffmpeg_path=settings.ffmpeg_path,
+                audio_path=episode["audio_path"],
+                output_dir=sample_dir,
+                label=label["label"],
+                start=sample["start"],
+                end=sample["end"],
+                sample_index=index,
+            )
+            sample["sample_clip_url"] = f"/episodes/{episode_id}/speaker-labels/{label['label']}/samples/{index}"
+        if label["samples"]:
+            first = label["samples"][0]
+            ensure_sample_clip(
+                ffmpeg_path=settings.ffmpeg_path,
+                audio_path=episode["audio_path"],
+                output_dir=sample_dir,
+                label=label["label"],
+                start=first["start"],
+                end=first["end"],
+            )
+        label["sample_clip_url"] = f"/episodes/{episode_id}/speaker-labels/{label['label']}/sample"
+    return labels
+
+
+def _detected_speaker_labels(transcript: dict) -> set[str]:
+    return set(speaker_labels_from_transcript(transcript))
+
+
+def _require_complete_speaker_mapping(conn, episode_id: str, transcript: dict) -> None:
+    labels = _detected_speaker_labels(transcript)
+    if not labels:
+        raise HTTPException(
+            status_code=409,
+            detail="Transcript has no speaker labels. Re-transcribe with diarization before extracting trivia.",
+        )
+    mapped_labels = set(get_speaker_mapping(conn, episode_id))
+    missing_labels = sorted(labels - mapped_labels)
+    if missing_labels:
+        raise HTTPException(status_code=409, detail={"unmapped_speaker_labels": missing_labels})
 
 
 @router.post("", response_model=EpisodeOut, status_code=status.HTTP_201_CREATED)
@@ -153,6 +212,7 @@ def start_transcription(
 ) -> dict:
     _require_episode(episode_id)
     payload = request or TranscriptionRequest()
+    _validate_transcription_request(payload)
     settings = get_settings()
     with get_connection() as conn:
         job = create_job(conn, episode_id, "transcribe")
@@ -168,8 +228,10 @@ def start_trivia_extraction(
 ) -> dict:
     _require_episode(episode_id)
     with get_connection() as conn:
-        if get_transcript(conn, episode_id) is None:
+        transcript = get_transcript(conn, episode_id)
+        if transcript is None:
             raise HTTPException(status_code=409, detail="Episode has no transcript yet")
+        _require_complete_speaker_mapping(conn, episode_id, transcript)
         job = create_job(conn, episode_id, "extract_trivia")
     payload = request or TriviaExtractionRequest()
     settings = get_settings()
@@ -185,6 +247,12 @@ def start_processing(
 ) -> dict:
     _require_episode(episode_id)
     payload = request or ProcessRequest()
+    _validate_transcription_request(payload.transcription)
+    if payload.transcription.diarize:
+        raise HTTPException(
+            status_code=409,
+            detail="Diarized processing requires transcribe, speaker mapping, then trivia extraction.",
+        )
     settings = get_settings()
     with get_connection() as conn:
         job = create_job(conn, episode_id, "process")
@@ -209,6 +277,62 @@ def read_trivia(episode_id: str) -> list[dict]:
         return list_trivia_items(conn, episode_id)
 
 
+@router.get("/{episode_id}/speaker-labels", response_model=SpeakerLabelsOut)
+def read_speaker_labels(episode_id: str) -> dict:
+    episode = _require_episode(episode_id)
+    settings = get_settings()
+    with get_connection() as conn:
+        transcript = get_transcript(conn, episode_id)
+        if transcript is None:
+            raise HTTPException(status_code=404, detail="Transcript not found")
+        mappings = get_speaker_mapping(conn, episode_id)
+    labels = _speaker_label_summary(episode_id, episode, transcript, settings)
+    return {
+        "episode_id": episode_id,
+        "speakers": episode["speakers"],
+        "mappings": mappings,
+        "labels": labels,
+    }
+
+
+@router.get("/{episode_id}/speaker-labels/{label}/sample")
+def read_speaker_label_sample(episode_id: str, label: str) -> FileResponse:
+    return read_speaker_label_sample_by_index(episode_id, label, 0, legacy_filename=True)
+
+
+@router.get("/{episode_id}/speaker-labels/{label}/samples/{sample_index}")
+def read_speaker_label_sample_by_index(
+    episode_id: str,
+    label: str,
+    sample_index: int,
+    legacy_filename: bool = False,
+) -> FileResponse:
+    episode = _require_episode(episode_id)
+    safe_label = sanitize_label(label)
+    settings = get_settings()
+    with get_connection() as conn:
+        transcript = get_transcript(conn, episode_id)
+    if transcript is None:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    labels = {item["label"]: item for item in summarize_speaker_labels(transcript)}
+    if safe_label not in labels:
+        raise HTTPException(status_code=404, detail="Speaker label not found")
+    samples = labels[safe_label]["samples"]
+    if not samples or sample_index < 0 or sample_index >= len(samples):
+        raise HTTPException(status_code=404, detail="Speaker label has no samples")
+    sample = samples[sample_index]
+    path = ensure_sample_clip(
+        ffmpeg_path=settings.ffmpeg_path,
+        audio_path=episode["audio_path"],
+        output_dir=settings.episode_root / episode_id / "speaker_samples",
+        label=safe_label,
+        start=sample["start"],
+        end=sample["end"],
+        sample_index=None if legacy_filename else sample_index,
+    )
+    return FileResponse(path, media_type="audio/mpeg", filename=f"{safe_label}.mp3")
+
+
 @router.get("/{episode_id}/speaker-mapping", response_model=SpeakerMappingOut)
 def read_speaker_mapping(episode_id: str) -> dict:
     _require_episode(episode_id)
@@ -220,6 +344,13 @@ def read_speaker_mapping(episode_id: str) -> dict:
 def update_speaker_mapping(episode_id: str, request: SpeakerMappingIn) -> dict:
     _require_episode(episode_id)
     with get_connection() as conn:
+        transcript = get_transcript(conn, episode_id)
+        if transcript is None:
+            raise HTTPException(status_code=409, detail="Episode has no transcript yet")
+        detected_labels = _detected_speaker_labels(transcript)
+        invalid_labels = sorted(set(request.mappings) - detected_labels)
+        if invalid_labels:
+            raise HTTPException(status_code=422, detail={"unknown_speaker_labels": invalid_labels})
         allowed_speaker_ids = set(speaker_ids_for_episode(conn, episode_id))
         invalid_speaker_ids = sorted(set(request.mappings.values()) - allowed_speaker_ids)
         if invalid_speaker_ids:

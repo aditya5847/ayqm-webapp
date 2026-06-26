@@ -380,7 +380,7 @@ def save_trivia_items(
     for index, item in enumerate(trivia_items, start=1):
         data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
         timestamps = data.get("timestamps") or {}
-        item_id = data.get("id") or f"{episode_id}-trivia-{index:04d}"
+        item_id = f"{episode_id}-trivia-{index:04d}"
         speaker_diarization = _speaker_diarization_dict(data)
         conn.execute(
             """

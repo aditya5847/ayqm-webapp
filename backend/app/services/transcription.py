@@ -2,10 +2,19 @@ import json
 import os
 from pathlib import Path
 
+import whisperx
 from ayqm_transcribe.transcriber import WhisperXEncoder, transcribe_audio
 
 from ..config import Settings
 from ..schemas import TranscriptionRequest
+
+
+def ensure_diarization_pipeline_compatibility() -> None:
+    if hasattr(whisperx, "DiarizationPipeline"):
+        return
+    from whisperx.diarize import DiarizationPipeline
+
+    whisperx.DiarizationPipeline = DiarizationPipeline
 
 
 def run_transcription(
@@ -15,6 +24,8 @@ def run_transcription(
     settings: Settings,
 ) -> tuple[dict, Path]:
     hf_token = request.hf_token or os.environ.get("HF_TOKEN")
+    if request.diarize:
+        ensure_diarization_pipeline_compatibility()
     transcript = transcribe_audio(
         audio_path=audio_path,
         model_name=request.model_name or settings.whisper_model,
@@ -33,4 +44,3 @@ def run_transcription(
         json.dump(transcript, output, cls=WhisperXEncoder, indent=2, ensure_ascii=False)
 
     return transcript, transcript_path
-
