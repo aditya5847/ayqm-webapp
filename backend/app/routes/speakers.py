@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from ..auth import require_admin
 from ..db import get_connection
 from ..repositories import (
     create_speaker,
@@ -11,7 +12,7 @@ from ..repositories import (
 )
 from ..schemas import SpeakerCreate, SpeakerOut, SpeakerUpdate
 
-router = APIRouter(prefix="/speakers", tags=["speakers"])
+router = APIRouter(prefix="/speakers", tags=["speakers"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=list[SpeakerOut])

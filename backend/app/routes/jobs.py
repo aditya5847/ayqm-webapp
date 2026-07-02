@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from ..auth import require_admin
 from ..db import get_connection
 from ..repositories import get_job
 from ..schemas import JobOut
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/{job_id}", response_model=JobOut)
@@ -14,4 +15,3 @@ def read_job(job_id: str) -> dict:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
-

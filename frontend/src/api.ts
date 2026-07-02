@@ -185,6 +185,10 @@ export async function saveSpeakerMapping(
   });
 }
 
+export async function getSpeakerMapping(episodeId: string): Promise<SpeakerMappingResponse> {
+  return request<SpeakerMappingResponse>(`/episodes/${episodeId}/speaker-mapping`);
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {

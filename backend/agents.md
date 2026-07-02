@@ -71,35 +71,26 @@ Tests should monkeypatch `ayqm-transcribe` integration points instead of invokin
 WhisperX or Gemini.
 - Use `/Users/adityasrivastava/.local/bin/uv run pytest`.
 
-## Deferred Public Site and Admin API Task
-Implement this work on a separate backend branch. Do not partially expose public
-content before publication filtering and public response schemas are in place.
-
-- Add single-admin password authentication. Configure an Argon2 password hash
-  with `AYQM_ADMIN_PASSWORD_HASH` and sign sessions with
-  `AYQM_SESSION_SECRET`. Expose `POST /auth/login`, `GET /auth/session`, and
-  `POST /auth/logout` using a secure HTTP-only, SameSite=Lax cookie. Protect all
-  episode, speaker, job, transcript, mapping, and trivia mutation/admin reads.
-- Add `episodes.is_published BOOLEAN NOT NULL DEFAULT FALSE`. Existing episodes
-  must remain drafts. Publication applies to an entire episode and its remaining
-  trivia.
-- Add public response schemas that exclude audio/filesystem paths, processing
-  state, jobs, raw diarization, and unpublished data. Expose
-  `GET /public/episodes`, `GET /public/episodes/{episode_id}`,
-  `GET /public/episodes/{episode_id}/trivia`, and paginated
-  `GET /public/trivia?limit=&offset=`.
-- Add `PATCH /episodes/{episode_id}` for `episode_title`, integer
-  `episode_number`, optional description/date/source URL, selected `speaker_ids`,
-  and `is_published`. Remove mappings to deselected speakers and require mapping
-  to be completed again where necessary.
-- Add `PATCH /trivia/{trivia_id}` for type, question, answer, keywords,
-  confidence, and an optional real-speaker override; add
-  `DELETE /trivia/{trivia_id}`.
-- Add `POST /trivia/{trivia_id}/rephrase`. Use the configured Gemini model to
-  return a question/answer suggestion without persisting it. The frontend saves
-  an accepted suggestion through the normal trivia PATCH endpoint.
-- Starting trivia extraction must unpublish the episode because extraction
-  replaces its trivia and can discard manual edits. Do not automatically
-  republish after completion.
-- Add migration, repository, route, authentication, authorization, public-data
-  isolation, update/delete, mocked rephrase, and extraction-unpublishing tests.
+## Admin Authentication and Publishing
+- All `/episodes`, `/speakers`, `/jobs`, and `/trivia` routes require the signed
+  single-admin session cookie. `/health`, `/auth/*`, `/public/*`, and docs remain
+  public.
+- Configure `AYQM_ADMIN_PASSWORD_HASH` with an Argon2 hash and
+  `AYQM_SESSION_SECRET` with a high-entropy secret. Missing settings fail admin
+  access with `503`; they never disable authentication.
+- Sessions use an HTTP-only, SameSite=Lax cookie with a seven-day default
+  lifetime. `AYQM_SESSION_COOKIE_SECURE` must be false for local HTTP and true
+  behind production HTTPS.
+- `episodes.is_published` defaults to false, including migrated episodes.
+  Publication applies to an episode and its remaining trivia.
+- Public reads live under `/public` and use dedicated response schemas that omit
+  filesystem paths, jobs, processing state, raw diarization, and draft data.
+- Episode metadata and selected speakers are updated through
+  `PATCH /episodes/{episode_id}`. Removing speakers also removes invalid mappings
+  and clears or recomputes invalid trivia askers.
+- Trivia editing and deletion live under `/trivia/{trivia_id}`. Manual asker
+  overrides survive mapping recomputation while the speaker remains selected.
+- `POST /trivia/{trivia_id}/rephrase` returns a Gemini suggestion without saving
+  it. Accepted text is persisted only through PATCH.
+- Starting trivia extraction or full processing unpublishes the episode. Trivia
+  replacement also enforces draft status and never republishes automatically.
