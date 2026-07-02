@@ -261,12 +261,15 @@ h1, h2, h3 { overflow-wrap: anywhere; }
 .episode-tabs a.active { border-color: var(--red); color: #171717; }
 .episode-tab-panel { padding-top: 25px; }
 .workspace-section + .workspace-section { border-top: 1px solid #c9c8c2; margin-top: 34px; padding-top: 20px; }
-.episode-detail-grid { display: grid; gap: 1px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; max-width: 960px; }
-.detail-item { background: #fff; border: 1px solid #deddd7; display: grid; gap: 7px; min-height: 82px; padding: 14px; }
+.episode-detail-grid { display: grid; gap: 22px 36px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; max-width: 960px; }
+.detail-item { display: grid; gap: 7px; padding: 0; }
 .detail-item.wide { grid-column: 1 / -1; }
 .detail-item dt { color: #716d66; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .detail-item dd { line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
 .detail-item a { align-items: center; display: inline-flex; gap: 5px; }
+.upload-progress { align-items: center; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; }
+.upload-progress progress, .job-progress progress { accent-color: #e3342f; height: 10px; width: 100%; }
+.job-progress { display: grid; gap: 8px; }
 
 .table-wrap { background: #fff; border: 1px solid #d2d1cc; border-radius: 5px; overflow-x: auto; }
 table { border-collapse: collapse; min-width: 820px; width: 100%; }

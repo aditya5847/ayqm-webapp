@@ -1,0 +1,10 @@
+.git
+.venv
+.env
+data
+frontend/node_modules
+frontend/dist
+**/__pycache__
+**/.DS_Store
+*.duckdb
+*.duckdb.wal

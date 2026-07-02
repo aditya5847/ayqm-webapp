@@ -54,7 +54,7 @@ export function EpisodeWorkspaceLayout() {
         <div className="episode-workspace">
           <Link className="back-link" to="/admin/episodes"><ArrowLeft size={17} />Back to episodes</Link>
           <header className="episode-workspace-heading">
-            <div><p className="eyebrow">Episode {item.episode_number}</p><h1>{item.episode_title}</h1></div>
+            <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1></div>
             <StatusPill value={item.is_published ? "published" : "draft"} />
           </header>
           <nav className="episode-tabs" aria-label="Episode workspace">
@@ -84,10 +84,9 @@ export function EpisodeOverviewTab() {
   return (
     <>
       <section className="workspace-section">
-        <SectionHeading title="Episode overview" />
         <dl className="episode-detail-grid">
           <Detail label="Title">{episode.episode_title}</Detail>
-          <Detail label="Episode number">{episode.episode_number}</Detail>
+          <Detail label="Episode">{episodeLabel(episode)}</Detail>
           <Detail label="Description" wide>{episode.episode_description || "Not set"}</Detail>
           <Detail label="Published at">{formatDate(episode.published_at)}</Detail>
           <Detail label="Visibility"><StatusPill value={episode.is_published ? "published" : "draft"} /></Detail>
@@ -126,7 +125,8 @@ export function EpisodeDetailsTab() {
   useEffect(() => setDraft(detailsDraft(episode)), [episode]);
   const save = useMutation({
     mutationFn: () => updateEpisode(episode.id, {
-      episode_title: draft.title.trim(), episode_number: draft.number,
+      episode_title: draft.title.trim(), episode_number: draft.number === "" ? null : draft.number,
+      episode_kind: draft.kind,
       episode_description: draft.description.trim() || null,
       published_at: draft.publishedAt || null, source_url: draft.sourceUrl.trim() || null,
       speaker_ids: draft.speakerIds, is_published: draft.published
@@ -142,7 +142,8 @@ export function EpisodeDetailsTab() {
       <SectionHeading title="Edit episode details" hint="Changes to published episodes appear on the public site immediately." />
       <form className="form-grid" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
         <label className="field"><RequiredLabel>Episode title</RequiredLabel><input required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
-        <label className="field"><RequiredLabel>Episode number</RequiredLabel><input required type="number" min="1" value={draft.number} onChange={event => setDraft({ ...draft, number: Number(event.target.value) })} /></label>
+        <label className="field"><span>Episode kind</span><select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.target.value as NonNullable<Episode["episode_kind"]>, number: event.target.value === "announcement" ? "" : draft.number || 1 })}><option value="main">Main episode</option><option value="mini">Mini episode</option><option value="announcement">Announcement</option></select></label>
+        <label className="field">{draft.kind === "announcement" ? <span>Episode number</span> : <RequiredLabel>Episode number</RequiredLabel>}<input required={draft.kind !== "announcement"} type="number" min="1" value={draft.number} onChange={event => setDraft({ ...draft, number: event.target.value ? Number(event.target.value) : "" })} /></label>
         <label className="field full"><span>Description</span><textarea rows={4} value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
         <label className="field"><span>Published at</span><input type="datetime-local" value={draft.publishedAt} onChange={event => setDraft({ ...draft, publishedAt: event.target.value })} /></label>
         <label className="field"><span>Source URL</span><input type="url" value={draft.sourceUrl} onChange={event => setDraft({ ...draft, sourceUrl: event.target.value })} /></label>
@@ -246,7 +247,7 @@ export function TriviaItemCard({ item, speakers }: { item: TriviaItem; speakers:
 }
 
 function useEpisodeWorkspace() { return useOutletContext<EpisodeWorkspaceContext>(); }
-function detailsDraft(episode: Episode) { return { title: episode.episode_title, number: episode.episode_number, description: episode.episode_description ?? "", publishedAt: episode.published_at?.slice(0, 16) ?? "", sourceUrl: episode.source_url ?? "", speakerIds: episode.speakers.map(speaker => speaker.id), published: episode.is_published ?? false }; }
+function detailsDraft(episode: Episode) { return { title: episode.episode_title, number: episode.episode_number ?? "" as number | "", kind: episode.episode_kind ?? "main", description: episode.episode_description ?? "", publishedAt: episode.published_at?.slice(0, 16) ?? "", sourceUrl: episode.source_url ?? "", speakerIds: episode.speakers.map(speaker => speaker.id), published: episode.is_published ?? false }; }
 function triviaDraft(item: TriviaItem): TriviaUpdateInput { return { type: item.type, question: item.question, answer: item.answer, keywords: item.keywords, confidence: item.confidence, asker_speaker_id: item.asker?.id ?? null }; }
 function mappingFromLabels(labels?: SpeakerLabels) { return labels ? Object.fromEntries(Object.entries(labels.mappings).map(([label, speaker]) => [label, speaker.id])) : {}; }
 function setJob(accepted: JobAccepted, setter: (id: string) => void) { setter(accepted.job_id); }
@@ -255,4 +256,5 @@ function refreshEpisode(client: ReturnType<typeof useQueryClient>, episodeId: st
 function SectionHeading({ title, hint, icon }: { title: string; hint?: string; icon?: React.ReactNode }) { return <div className="section-heading"><div>{icon}<h2>{title}</h2></div>{hint && <p>{hint}</p>}</div>; }
 function Metric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
 function Detail({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <div className={wide ? "detail-item wide" : "detail-item"}><dt>{label}</dt><dd>{children}</dd></div>; }
-function JobPanel({ job, error }: { job?: Job; error: Error | null }) { if (error) return <ErrorMessage error={error} />; if (!job) return <Loading />; return <Notice kind={job.status === "failed" ? "error" : job.status === "succeeded" ? "success" : "info"}>{job.status === "succeeded" ? <CheckCircle2 size={16} /> : job.status === "failed" ? <AlertCircle size={16} /> : <CircleDashed className="spin" size={16} />}{job.kind} is {job.status}{job.error ? `: ${job.error}` : ""}</Notice>; }
+function JobPanel({ job, error }: { job?: Job; error: Error | null }) { if (error) return <ErrorMessage error={error} />; if (!job) return <Loading />; const percent = job.progress_current != null && job.progress_total ? Math.min(100, Math.round(job.progress_current / job.progress_total * 100)) : null; return <div className="job-progress"><Notice kind={job.status === "failed" ? "error" : job.status === "succeeded" ? "success" : "info"}>{job.status === "succeeded" ? <CheckCircle2 size={16} /> : job.status === "failed" ? <AlertCircle size={16} /> : <CircleDashed className="spin" size={16} />}{job.progress_stage || job.kind} is {job.status}{job.error ? `: ${job.error}` : ""}</Notice>{percent !== null && <progress max="100" value={percent} />}</div>; }
+function episodeLabel(episode: Episode) { if (episode.episode_kind === "announcement") return "Announcement"; if (episode.episode_kind === "mini") return `Mini episode ${episode.episode_number}`; return `Episode ${episode.episode_number}`; }

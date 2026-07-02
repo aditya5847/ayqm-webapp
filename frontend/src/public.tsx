@@ -51,7 +51,7 @@ export function HomePage() {
           <h1>Are You Quizzing Me?</h1>
           {latest ? (
             <>
-              <p className="episode-label">Latest: Episode {latest.episode_number}</p>
+              <p className="episode-label">Latest: {episodeLabel(latest)}</p>
               <h2>{latest.episode_title}</h2>
               <p>{latest.episode_description}</p>
               <div className="hero-actions">
@@ -101,7 +101,7 @@ export function PublicEpisodePage() {
           <>
             <header className="episode-masthead">
               <img src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
-              <div><p className="eyebrow">Episode {item.episode_number}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><p>{item.episode_description}</p><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
+              <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><p>{item.episode_description}</p><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
             </header>
             <section className="editorial-section"><div className="section-title-row"><div><p className="eyebrow">Play along</p><h2>Trivia from this episode</h2></div></div><QueryState query={trivia} feature="Episode trivia" empty="No trivia has been published for this episode.">{(items) => <TriviaGrid items={items} />}</QueryState></section>
           </>
@@ -215,11 +215,17 @@ function EpisodeStrip({ episodes }: { episodes: PublicEpisode[] }) {
 }
 
 function EpisodeTile({ episode }: { episode: PublicEpisode }) {
-  return <article className="episode-tile"><Link to={`/episodes/${episode.id}`}><img src={thumbnailUrl} alt="" /><span>Episode {episode.episode_number}</span><h3>{episode.episode_title}</h3><p className="clamp">{episode.episode_description}</p></Link></article>;
+  return <article className="episode-tile"><Link to={`/episodes/${episode.id}`}><img src={thumbnailUrl} alt="" /><span>{episodeLabel(episode)}</span><h3>{episode.episode_title}</h3><p className="clamp">{episode.episode_description}</p></Link></article>;
 }
 
 function EpisodeRow({ episode }: { episode: PublicEpisode }) {
-  return <article className="episode-row"><img src={thumbnailUrl} alt="" /><div><p className="eyebrow">Episode {episode.episode_number} · {formatDate(episode.published_at)}</p><h2><Link to={`/episodes/${episode.id}`}>{episode.episode_title}</Link></h2><p>{episode.episode_description}</p><span>{episode.trivia_count} trivia questions</span></div><Link className="icon-link" to={`/episodes/${episode.id}`} aria-label={`Open ${episode.episode_title}`}><ArrowRight /></Link></article>;
+  return <article className="episode-row"><img src={thumbnailUrl} alt="" /><div><p className="eyebrow">{episodeLabel(episode)} · {formatDate(episode.published_at)}</p><h2><Link to={`/episodes/${episode.id}`}>{episode.episode_title}</Link></h2><p>{episode.episode_description}</p><span>{episode.trivia_count} trivia questions</span></div><Link className="icon-link" to={`/episodes/${episode.id}`} aria-label={`Open ${episode.episode_title}`}><ArrowRight /></Link></article>;
+}
+
+function episodeLabel(episode: PublicEpisode): string {
+  if (episode.episode_kind === "announcement") return "Announcement";
+  if (episode.episode_kind === "mini") return `Mini episode ${episode.episode_number}`;
+  return `Episode ${episode.episode_number}`;
 }
 
 export function TriviaGrid({ items }: { items: TriviaItem[] }) {

@@ -1,5 +1,6 @@
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 export type JobKind = "transcribe" | "extract_trivia" | "process";
+export type EpisodeKind = "main" | "mini" | "announcement";
 
 export interface Speaker {
   id: string;
@@ -9,7 +10,8 @@ export interface Speaker {
 export interface Episode {
   id: string;
   episode_title: string;
-  episode_number: number;
+  episode_number: number | null;
+  episode_kind?: EpisodeKind;
   episode_description: string | null;
   published_at: string | null;
   source_url: string | null;
@@ -17,6 +19,11 @@ export interface Episode {
   speakers: Speaker[];
   audio_path: string;
   audio_content_type: string | null;
+  audio_object_key?: string | null;
+  audio_size_bytes?: number | null;
+  duration_seconds?: number | null;
+  rss_guid?: string | null;
+  rss_enclosure_url?: string | null;
   transcript_status: string;
   trivia_status: string;
   trivia_count: number;
@@ -28,7 +35,8 @@ export interface Episode {
 export interface PublicEpisode {
   id: string;
   episode_title: string;
-  episode_number: number;
+  episode_number: number | null;
+  episode_kind?: EpisodeKind;
   episode_description: string | null;
   published_at: string | null;
   source_url: string | null;
@@ -42,7 +50,8 @@ export interface AdminSession {
 
 export interface EpisodeUpdateInput {
   episode_title: string;
-  episode_number: number;
+  episode_number: number | null;
+  episode_kind: EpisodeKind;
   episode_description: string | null;
   published_at: string | null;
   source_url: string | null;
@@ -65,6 +74,10 @@ export interface Job {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  progress_stage?: string | null;
+  progress_current?: number | null;
+  progress_total?: number | null;
+  attempts?: number;
 }
 
 export interface SpeakerLabelSample {
@@ -137,4 +150,27 @@ export interface EpisodeUploadInput {
   source_url?: string;
   speaker_ids: string[];
   extra_metadata?: Record<string, unknown>;
+  onProgress?: (percent: number) => void;
+}
+
+export interface DirectUploadTicket {
+  episode_id: string;
+  object_key: string;
+  upload_url: string;
+  required_headers: Record<string, string>;
+}
+
+export interface FeedImport {
+  id: string;
+  feed_url: string;
+  status: string;
+  dry_run: boolean;
+  discovered_count: number;
+  imported_count: number;
+  skipped_count: number;
+  failed_count: number;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
 }

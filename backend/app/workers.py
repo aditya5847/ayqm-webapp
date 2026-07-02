@@ -1,10 +1,14 @@
+import hashlib
+import json
 from pathlib import Path
+from uuid import uuid4
 
 from .config import Settings
 from .db import get_connection
 from .repositories import (
     get_episode,
     get_transcript,
+    now_utc,
     save_transcript,
     save_trivia_items,
     speaker_ids_for_episode,
@@ -75,6 +79,26 @@ def extract_trivia_job(
             transcript = get_transcript(conn, episode_id)
             if transcript is None:
                 raise ValueError(f"Transcript not found for episode: {episode_id}")
+            transcript_sha256 = hashlib.sha256(
+                json.dumps(transcript, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            model = request.model or settings.gemini_model or "gemini-3.1-flash-lite"
+            existing = conn.execute(
+                """
+                SELECT COUNT(*) FROM gemini_usage
+                WHERE episode_id = ? AND model = ? AND prompt_version = 'v1'
+                  AND transcript_sha256 = ?
+                """,
+                [episode_id, model, transcript_sha256],
+            ).fetchone()[0]
+            if existing:
+                update_job_status(conn, job_id, "succeeded")
+                return
+            spent = float(conn.execute("SELECT COALESCE(SUM(actual_cost_usd), 0) FROM gemini_usage").fetchone()[0])
+            if spent >= settings.gemini_historical_budget_usd:
+                raise ValueError(
+                    f"Gemini application budget of ${settings.gemini_historical_budget_usd:.2f} has been reached"
+                )
 
         trivia, _trivia_path = run_trivia_extraction(
             transcript=transcript,
@@ -85,6 +109,28 @@ def extract_trivia_job(
 
         with get_connection() as conn:
             save_trivia_items(conn, episode_id, trivia)
+            if _trivia_path.exists():
+                artifact = json.loads(_trivia_path.read_text(encoding="utf-8"))
+                usage = artifact.get("usage", {})
+                estimated = usage.get("estimated", {})
+                actual = usage.get("actual") or {}
+                conn.execute(
+                    """
+                    INSERT INTO gemini_usage VALUES (?, ?, ?, ?, 'v1', ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        str(uuid4()),
+                        job_id,
+                        episode_id,
+                        artifact.get("model") or model,
+                        transcript_sha256,
+                        int(actual.get("prompt_token_count") or estimated.get("input_tokens") or 0),
+                        int(actual.get("candidates_token_count") or 0) + int(actual.get("thoughts_token_count") or 0),
+                        float(estimated.get("estimated_input_cost_usd") or 0),
+                        float(actual.get("actual_cost_usd") or 0),
+                        now_utc(),
+                    ],
+                )
             update_job_status(conn, job_id, "succeeded")
     except Exception as exc:
         with get_connection() as conn:

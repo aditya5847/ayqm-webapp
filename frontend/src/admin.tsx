@@ -1,12 +1,12 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Save, Trash2, Upload, Users } from "lucide-react";
+import { ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Trash2, Upload, Users } from "lucide-react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  createSpeaker, deleteSpeaker, getAdminSession, isUnsupportedFeature,
-  listEpisodes, listSpeakers, loginAdmin, logoutAdmin, updateSpeaker, uploadEpisode
+  createSpeaker, deleteSpeaker, getAdminSession, getRssImport, isUnsupportedFeature,
+  listEpisodes, listSpeakers, loginAdmin, logoutAdmin, startRssImport, updateSpeaker, uploadEpisode
 } from "./api";
-import type { Speaker } from "./types";
+import type { Episode, FeedImport, Speaker } from "./types";
 import { formatDate } from "./workflow";
 import { ComingSoon, ErrorMessage, Loading, QueryState, RequiredLabel, StatusPill } from "./ui";
 import logoUrl from "../references/Logo.png";
@@ -41,12 +41,25 @@ function AdminLayout() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const logout = useMutation({ mutationFn: logoutAdmin, onSuccess: () => { client.clear(); navigate("/admin/login"); } });
-  return <div className="admin-shell"><aside className="admin-sidebar"><Link className="admin-brand" to="/"><img src={logoUrl} alt="Are You Quizzing Me?" /></Link><p className="workspace-label">Admin workspace</p><nav className="admin-nav" aria-label="Admin navigation"><NavLink to="/admin/episodes"><LayoutDashboard size={18} />Episodes</NavLink><NavLink to="/admin/episodes/new"><Upload size={18} />Upload</NavLink><NavLink to="/admin/speakers"><Users size={18} />Speakers</NavLink></nav><div className="admin-sidebar-bottom"><Link to="/">View public site <ExternalLink size={15} /></Link><button type="button" onClick={() => logout.mutate()}><LogOut size={16} />Sign out</button></div></aside><main className="admin-main"><Outlet /></main></div>;
+  return <div className="admin-shell"><aside className="admin-sidebar"><Link className="admin-brand" to="/"><img src={logoUrl} alt="Are You Quizzing Me?" /></Link><p className="workspace-label">Admin workspace</p><nav className="admin-nav" aria-label="Admin navigation"><NavLink to="/admin/episodes"><LayoutDashboard size={18} />Episodes</NavLink><NavLink to="/admin/episodes/new"><Upload size={18} />Upload</NavLink><NavLink to="/admin/imports"><Rss size={18} />RSS import</NavLink><NavLink to="/admin/speakers"><Users size={18} />Speakers</NavLink></nav><div className="admin-sidebar-bottom"><Link to="/">View public site <ExternalLink size={15} /></Link><button type="button" onClick={() => logout.mutate()}><LogOut size={16} />Sign out</button></div></aside><main className="admin-main"><Outlet /></main></div>;
+}
+
+export function RssImportPage() {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const current = useQuery({
+    queryKey: ["rss-import", activeId],
+    queryFn: () => getRssImport(activeId!),
+    enabled: Boolean(activeId),
+    refetchInterval: query => ["queued", "running"].includes((query.state.data as FeedImport | undefined)?.status ?? "") ? 2000 : false
+  });
+  const start = useMutation({ mutationFn: (dryRun: boolean) => startRssImport(dryRun), onSuccess: item => setActiveId(item.id) });
+  const item = current.data;
+  return <AdminPage title="RSS import"><div className="action-strip"><button className="button" type="button" onClick={() => start.mutate(true)} disabled={start.isPending}><Rss size={16} />Preview feed</button><button className="button primary" type="button" onClick={() => start.mutate(false)} disabled={start.isPending}><Rss size={16} />Import feed</button></div><ErrorMessage error={start.error ?? current.error} />{item && <section className="workspace-section"><div className="summary-grid"><Metric label="Status" value={<StatusPill value={item.status} />} /><Metric label="Discovered" value={item.discovered_count} /><Metric label="Imported" value={item.imported_count} /><Metric label="Existing" value={item.skipped_count} /><Metric label="Failed" value={item.failed_count} /></div>{["queued", "running"].includes(item.status) && <div className="job-progress"><progress max={Math.max(1, item.discovered_count)} value={item.imported_count + item.skipped_count + item.failed_count} /></div>}{item.error && <ErrorMessage error={item.error} />}</section>}</AdminPage>;
 }
 
 export function AdminEpisodesPage() {
   const episodes = useQuery({ queryKey: ["episodes"], queryFn: listEpisodes });
-  return <AdminPage title="Episodes" actions={<Link className="button primary" to="/admin/episodes/new"><Upload size={16} />Upload episode</Link>}><QueryState query={episodes} empty="No episodes uploaded yet.">{items => <div className="table-wrap"><table><thead><tr><th>Episode</th><th>Visibility</th><th>Transcript</th><th>Trivia</th><th>Updated</th></tr></thead><tbody>{items.map(episode => <tr key={episode.id}><td><Link className="row-title" to={`/admin/episodes/${episode.id}`}>#{episode.episode_number} {episode.episode_title}</Link><div className="muted clamp">{episode.episode_description}</div></td><td><StatusPill value={episode.is_published ? "published" : "draft"} /></td><td><StatusPill value={episode.transcript_status} /></td><td><StatusPill value={episode.trivia_status} /> <span className="count">{episode.trivia_count}</span></td><td>{formatDate(episode.updated_at)}</td></tr>)}</tbody></table></div>}</QueryState></AdminPage>;
+  return <AdminPage title="Episodes" actions={<Link className="button primary" to="/admin/episodes/new"><Upload size={16} />Upload episode</Link>}><QueryState query={episodes} empty="No episodes uploaded yet.">{items => <div className="table-wrap"><table><thead><tr><th>Episode</th><th>Visibility</th><th>Transcript</th><th>Trivia</th><th>Updated</th></tr></thead><tbody>{items.map(episode => <tr key={episode.id}><td><Link className="row-title" to={`/admin/episodes/${episode.id}`}>{episodeLabel(episode)} {episode.episode_title}</Link><div className="muted clamp">{episode.episode_description}</div></td><td><StatusPill value={episode.is_published ? "published" : "draft"} /></td><td><StatusPill value={episode.transcript_status} /></td><td><StatusPill value={episode.trivia_status} /> <span className="count">{episode.trivia_count}</span></td><td>{formatDate(episode.updated_at)}</td></tr>)}</tbody></table></div>}</QueryState></AdminPage>;
 }
 
 export function UploadPage() {
@@ -56,6 +69,7 @@ export function UploadPage() {
   const [file, setFile] = useState<File | null>(null); const [title, setTitle] = useState(""); const [number, setNumber] = useState(1);
   const [description, setDescription] = useState(""); const [publishedAt, setPublishedAt] = useState(""); const [sourceUrl, setSourceUrl] = useState("");
   const [speakerIds, setSpeakerIds] = useState<string[]>([]); const [extraMetadata, setExtraMetadata] = useState("{}"); const [formError, setFormError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setFormError(null);
     if (!file) return setFormError("Choose an audio file.");
@@ -63,9 +77,10 @@ export function UploadPage() {
     let parsedMetadata: Record<string, unknown> = {};
     try { parsedMetadata = extraMetadata.trim() ? JSON.parse(extraMetadata) : {}; if (!parsedMetadata || Array.isArray(parsedMetadata) || typeof parsedMetadata !== "object") throw new Error("Extra metadata must be a JSON object."); }
     catch (error) { return setFormError(error instanceof Error ? error.message : "Extra metadata must be valid JSON."); }
-    mutation.mutate({ file, episode_title: title, episode_number: number, episode_description: description, published_at: publishedAt, source_url: sourceUrl, speaker_ids: speakerIds, extra_metadata: parsedMetadata });
+    setUploadProgress(0);
+    mutation.mutate({ file, episode_title: title, episode_number: number, episode_description: description, published_at: publishedAt, source_url: sourceUrl, speaker_ids: speakerIds, extra_metadata: parsedMetadata, onProgress: setUploadProgress });
   }
-  return <AdminPage title="Upload episode"><form className="form-grid" onSubmit={submit}><label className="field full"><RequiredLabel>Audio file</RequiredLabel><input required type="file" accept="audio/*" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label><label className="field"><RequiredLabel>Episode title</RequiredLabel><input required value={title} onChange={event => setTitle(event.target.value)} /></label><label className="field"><RequiredLabel>Episode number</RequiredLabel><input required type="number" min="1" value={number} onChange={event => setNumber(Number(event.target.value))} /></label><label className="field full"><span>Description</span><textarea rows={4} value={description} onChange={event => setDescription(event.target.value)} /></label><label className="field"><span>Published at</span><input type="datetime-local" value={publishedAt} onChange={event => setPublishedAt(event.target.value)} /></label><label className="field"><span>Source URL</span><input type="url" value={sourceUrl} onChange={event => setSourceUrl(event.target.value)} /></label><fieldset className="field full speaker-picker"><legend><RequiredLabel>Episode speakers</RequiredLabel></legend><QueryState query={speakers} empty="Create speakers before uploading episodes.">{items => <div className="checkbox-grid">{items.map(speaker => <label className="check-row" key={speaker.id}><input type="checkbox" checked={speakerIds.includes(speaker.id)} onChange={event => setSpeakerIds(current => event.target.checked ? [...current, speaker.id] : current.filter(id => id !== speaker.id))} /><span>{speaker.name}</span></label>)}</div>}</QueryState></fieldset><label className="field full"><span>Extra metadata (JSON)</span><textarea rows={5} value={extraMetadata} onChange={event => setExtraMetadata(event.target.value)} spellCheck={false} /></label><div className="full"><ErrorMessage error={formError ?? mutation.error} /></div><div className="form-actions full"><button className="button primary" disabled={mutation.isPending}>{mutation.isPending ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}Upload episode</button></div></form></AdminPage>;
+  return <AdminPage title="Upload episode"><form className="form-grid" onSubmit={submit}><label className="field full"><RequiredLabel>Audio file</RequiredLabel><input required type="file" accept="audio/*" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label><label className="field"><RequiredLabel>Episode title</RequiredLabel><input required value={title} onChange={event => setTitle(event.target.value)} /></label><label className="field"><RequiredLabel>Episode number</RequiredLabel><input required type="number" min="1" value={number} onChange={event => setNumber(Number(event.target.value))} /></label><label className="field full"><span>Description</span><textarea rows={4} value={description} onChange={event => setDescription(event.target.value)} /></label><label className="field"><span>Published at</span><input type="datetime-local" value={publishedAt} onChange={event => setPublishedAt(event.target.value)} /></label><label className="field"><span>Source URL</span><input type="url" value={sourceUrl} onChange={event => setSourceUrl(event.target.value)} /></label><fieldset className="field full speaker-picker"><legend><RequiredLabel>Episode speakers</RequiredLabel></legend><QueryState query={speakers} empty="Create speakers before uploading episodes.">{items => <div className="checkbox-grid">{items.map(speaker => <label className="check-row" key={speaker.id}><input type="checkbox" checked={speakerIds.includes(speaker.id)} onChange={event => setSpeakerIds(current => event.target.checked ? [...current, speaker.id] : current.filter(id => id !== speaker.id))} /><span>{speaker.name}</span></label>)}</div>}</QueryState></fieldset><label className="field full"><span>Extra metadata (JSON)</span><textarea rows={5} value={extraMetadata} onChange={event => setExtraMetadata(event.target.value)} spellCheck={false} /></label>{mutation.isPending && <div className="upload-progress full"><progress max="100" value={uploadProgress} /><span>{uploadProgress > 0 ? `${uploadProgress}%` : "Preparing upload"}</span></div>}<div className="full"><ErrorMessage error={formError ?? mutation.error} /></div><div className="form-actions full"><button className="button primary" disabled={mutation.isPending}>{mutation.isPending ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}Upload episode</button></div></form></AdminPage>;
 }
 
 export function SpeakersPage() {
@@ -83,4 +98,14 @@ function SpeakerRow({ speaker }: { speaker: Speaker }) {
 
 function AdminPage({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return <><header className="admin-page-header"><div><p className="eyebrow">Podcast operations</p><h1>{title}</h1></div>{actions}</header>{children}</>;
+}
+
+function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function episodeLabel(episode: Episode): string {
+  if (episode.episode_kind === "announcement") return "Announcement";
+  if (episode.episode_kind === "mini") return `Mini #${episode.episode_number}`;
+  return `#${episode.episode_number}`;
 }

@@ -1,11 +1,15 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from threading import RLock
 
 import duckdb
 from duckdb import DuckDBPyConnection
 
 from .config import get_settings
+
+
+_database_lock = RLock()
 
 
 def connect(database_path: Path | str | None = None) -> DuckDBPyConnection:
@@ -15,110 +19,225 @@ def connect(database_path: Path | str | None = None) -> DuckDBPyConnection:
 
 @contextmanager
 def get_connection() -> Iterator[DuckDBPyConnection]:
-    conn = connect()
-    try:
-        yield conn
-    finally:
-        conn.close()
+    with _database_lock:
+        conn = connect()
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 
 def initialize_database(database_path: Path | str | None = None) -> None:
-    conn = connect(database_path)
-    try:
-        _migrate_episodes(conn)
-        _migrate_trivia_items(conn)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS episodes (
-                id VARCHAR PRIMARY KEY,
-                episode_title VARCHAR NOT NULL,
-                episode_number INTEGER NOT NULL,
-                episode_description VARCHAR,
-                published_at TIMESTAMP,
-                source_url VARCHAR,
-                extra_metadata JSON NOT NULL,
-                audio_path VARCHAR NOT NULL,
-                audio_content_type VARCHAR,
-                is_published BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMP NOT NULL,
-                updated_at TIMESTAMP NOT NULL
+    with _database_lock:
+        conn = connect(database_path)
+        try:
+            _migrate_episodes(conn)
+            _migrate_trivia_items(conn)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episodes (
+                    id VARCHAR PRIMARY KEY,
+                    episode_title VARCHAR NOT NULL,
+                    episode_number INTEGER,
+                    episode_description VARCHAR,
+                    published_at TIMESTAMP,
+                    source_url VARCHAR,
+                    extra_metadata JSON NOT NULL,
+                    audio_path VARCHAR NOT NULL,
+                    audio_content_type VARCHAR,
+                    is_published BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    episode_kind VARCHAR NOT NULL DEFAULT 'main',
+                    rss_guid VARCHAR,
+                    rss_enclosure_url VARCHAR,
+                    audio_object_key VARCHAR,
+                    audio_sha256 VARCHAR,
+                    audio_size_bytes BIGINT,
+                    duration_seconds DOUBLE,
+                    rss_imported_at TIMESTAMP
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS speakers (
-                id VARCHAR PRIMARY KEY,
-                name VARCHAR NOT NULL
+            _migrate_production_columns(conn)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS speakers (
+                    id VARCHAR PRIMARY KEY,
+                    name VARCHAR NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS episode_speakers (
-                episode_id VARCHAR NOT NULL,
-                speaker_id VARCHAR NOT NULL,
-                position INTEGER NOT NULL,
-                PRIMARY KEY (episode_id, speaker_id)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episode_speakers (
+                    episode_id VARCHAR NOT NULL,
+                    speaker_id VARCHAR NOT NULL,
+                    position INTEGER NOT NULL,
+                    PRIMARY KEY (episode_id, speaker_id)
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS episode_speaker_mappings (
-                episode_id VARCHAR NOT NULL,
-                diarization_label VARCHAR NOT NULL,
-                speaker_id VARCHAR NOT NULL,
-                PRIMARY KEY (episode_id, diarization_label)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episode_speaker_mappings (
+                    episode_id VARCHAR NOT NULL,
+                    diarization_label VARCHAR NOT NULL,
+                    speaker_id VARCHAR NOT NULL,
+                    PRIMARY KEY (episode_id, diarization_label)
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS jobs (
-                id VARCHAR PRIMARY KEY,
-                episode_id VARCHAR NOT NULL,
-                kind VARCHAR NOT NULL,
-                status VARCHAR NOT NULL,
-                error VARCHAR,
-                created_at TIMESTAMP NOT NULL,
-                started_at TIMESTAMP,
-                finished_at TIMESTAMP
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id VARCHAR PRIMARY KEY,
+                    episode_id VARCHAR NOT NULL,
+                    kind VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL,
+                    error VARCHAR,
+                    created_at TIMESTAMP NOT NULL,
+                    started_at TIMESTAMP,
+                    finished_at TIMESTAMP,
+                    payload JSON NOT NULL DEFAULT '{}',
+                    progress_stage VARCHAR,
+                    progress_current DOUBLE,
+                    progress_total DOUBLE,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    lease_token VARCHAR,
+                    lease_expires_at TIMESTAMP,
+                    artifact_key VARCHAR,
+                    artifact_sha256 VARCHAR,
+                    updated_at TIMESTAMP
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS transcripts (
-                episode_id VARCHAR PRIMARY KEY,
-                transcript_path VARCHAR NOT NULL,
-                transcript_json JSON NOT NULL,
-                created_at TIMESTAMP NOT NULL
+            _migrate_job_columns(conn)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS transcripts (
+                    episode_id VARCHAR PRIMARY KEY,
+                    transcript_path VARCHAR NOT NULL,
+                    transcript_json JSON NOT NULL,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS trivia_items (
-                id VARCHAR PRIMARY KEY,
-                episode_id VARCHAR NOT NULL,
-                type VARCHAR NOT NULL,
-                question VARCHAR,
-                answer VARCHAR,
-                keywords JSON NOT NULL,
-                timestamp_start DOUBLE NOT NULL,
-                timestamp_end DOUBLE NOT NULL,
-                timestamp_display VARCHAR NOT NULL,
-                speaker_diarization JSON NOT NULL,
-                asker_speaker_id VARCHAR,
-                asker_is_manual BOOLEAN NOT NULL DEFAULT FALSE,
-                confidence VARCHAR NOT NULL,
-                created_at TIMESTAMP NOT NULL
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trivia_items (
+                    id VARCHAR PRIMARY KEY,
+                    episode_id VARCHAR NOT NULL,
+                    type VARCHAR NOT NULL,
+                    question VARCHAR,
+                    answer VARCHAR,
+                    keywords JSON NOT NULL,
+                    timestamp_start DOUBLE NOT NULL,
+                    timestamp_end DOUBLE NOT NULL,
+                    timestamp_display VARCHAR NOT NULL,
+                    speaker_diarization JSON NOT NULL,
+                    asker_speaker_id VARCHAR,
+                    asker_is_manual BOOLEAN NOT NULL DEFAULT FALSE,
+                    confidence VARCHAR NOT NULL,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
             )
-            """
-        )
-    finally:
-        conn.close()
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS feed_imports (
+                    id VARCHAR PRIMARY KEY,
+                    feed_url VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL,
+                    dry_run BOOLEAN NOT NULL,
+                    discovered_count INTEGER NOT NULL DEFAULT 0,
+                    imported_count INTEGER NOT NULL DEFAULT 0,
+                    skipped_count INTEGER NOT NULL DEFAULT 0,
+                    failed_count INTEGER NOT NULL DEFAULT 0,
+                    error VARCHAR,
+                    created_at TIMESTAMP NOT NULL,
+                    started_at TIMESTAMP,
+                    finished_at TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS backup_records (
+                    id VARCHAR PRIMARY KEY,
+                    object_key VARCHAR NOT NULL,
+                    sha256 VARCHAR NOT NULL,
+                    size_bytes BIGINT NOT NULL,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gemini_usage (
+                    id VARCHAR PRIMARY KEY,
+                    job_id VARCHAR NOT NULL,
+                    episode_id VARCHAR NOT NULL,
+                    model VARCHAR NOT NULL,
+                    prompt_version VARCHAR NOT NULL,
+                    transcript_sha256 VARCHAR NOT NULL,
+                    input_tokens BIGINT NOT NULL,
+                    output_tokens BIGINT NOT NULL,
+                    estimated_cost_usd DOUBLE NOT NULL,
+                    actual_cost_usd DOUBLE NOT NULL,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS episodes_rss_guid_idx ON episodes(rss_guid)"
+            )
+        finally:
+            conn.close()
+
+
+def database_lock() -> RLock:
+    return _database_lock
+
+
+def _ensure_column(conn: DuckDBPyConnection, table: str, name: str, definition: str) -> None:
+    if name not in _table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def _migrate_production_columns(conn: DuckDBPyConnection) -> None:
+    if not _table_exists(conn, "episodes"):
+        return
+    table_info = conn.execute("PRAGMA table_info('episodes')").fetchall()
+    number_column = next((row for row in table_info if row[1] == "episode_number"), None)
+    if number_column and number_column[3]:
+        conn.execute("ALTER TABLE episodes ALTER COLUMN episode_number DROP NOT NULL")
+    _ensure_column(conn, "episodes", "episode_kind", "VARCHAR DEFAULT 'main'")
+    conn.execute("UPDATE episodes SET episode_kind = 'main' WHERE episode_kind IS NULL")
+    _ensure_column(conn, "episodes", "rss_guid", "VARCHAR")
+    _ensure_column(conn, "episodes", "rss_enclosure_url", "VARCHAR")
+    _ensure_column(conn, "episodes", "audio_object_key", "VARCHAR")
+    _ensure_column(conn, "episodes", "audio_sha256", "VARCHAR")
+    _ensure_column(conn, "episodes", "audio_size_bytes", "BIGINT")
+    _ensure_column(conn, "episodes", "duration_seconds", "DOUBLE")
+    _ensure_column(conn, "episodes", "rss_imported_at", "TIMESTAMP")
+
+
+def _migrate_job_columns(conn: DuckDBPyConnection) -> None:
+    if not _table_exists(conn, "jobs"):
+        return
+    _ensure_column(conn, "jobs", "payload", "JSON DEFAULT '{}'")
+    conn.execute("UPDATE jobs SET payload = '{}'::JSON WHERE payload IS NULL")
+    _ensure_column(conn, "jobs", "progress_stage", "VARCHAR")
+    _ensure_column(conn, "jobs", "progress_current", "DOUBLE")
+    _ensure_column(conn, "jobs", "progress_total", "DOUBLE")
+    _ensure_column(conn, "jobs", "attempts", "INTEGER DEFAULT 0")
+    conn.execute("UPDATE jobs SET attempts = 0 WHERE attempts IS NULL")
+    _ensure_column(conn, "jobs", "lease_token", "VARCHAR")
+    _ensure_column(conn, "jobs", "lease_expires_at", "TIMESTAMP")
+    _ensure_column(conn, "jobs", "artifact_key", "VARCHAR")
+    _ensure_column(conn, "jobs", "artifact_sha256", "VARCHAR")
+    _ensure_column(conn, "jobs", "updated_at", "TIMESTAMP")
 
 
 def _table_exists(conn: DuckDBPyConnection, table_name: str) -> bool:

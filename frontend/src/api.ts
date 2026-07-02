@@ -1,8 +1,10 @@
 import type {
   AdminSession,
+  DirectUploadTicket,
   Episode,
   EpisodeUpdateInput,
   EpisodeUploadInput,
+  FeedImport,
   Job,
   JobAccepted,
   PublicEpisode,
@@ -15,7 +17,7 @@ import type {
   TriviaUpdateInput
 } from "./types";
 
-const API_BASE = "/api";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -102,9 +104,58 @@ export async function getEpisode(episodeId: string): Promise<Episode> {
 }
 
 export async function uploadEpisode(input: EpisodeUploadInput): Promise<Episode> {
-  return request<Episode>("/episodes", {
-    method: "POST",
-    body: buildEpisodeFormData(input)
+  try {
+    const ticket = await request<DirectUploadTicket>("/episodes/uploads", {
+      method: "POST",
+      body: JSON.stringify({
+        episode_title: input.episode_title.trim(),
+        episode_number: input.episode_number,
+        episode_description: input.episode_description?.trim() || null,
+        published_at: input.published_at || null,
+        source_url: input.source_url?.trim() || null,
+        speaker_ids: input.speaker_ids,
+        extra_metadata: input.extra_metadata ?? {},
+        file_name: input.file.name,
+        content_type: input.file.type || "application/octet-stream"
+      })
+    });
+    await uploadObject(ticket, input.file, input.onProgress);
+    return request<Episode>(`/episodes/${ticket.episode_id}/uploads/complete`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  } catch (error) {
+    const localFallback = error instanceof ApiError
+      && error.status === 409
+      && error.message.includes("Direct uploads require R2");
+    if (!localFallback && !(error instanceof ApiError && [404, 405, 501].includes(error.status))) {
+      throw error;
+    }
+    return request<Episode>("/episodes", {
+      method: "POST",
+      body: buildEpisodeFormData(input)
+    });
+  }
+}
+
+function uploadObject(ticket: DirectUploadTicket, file: File, onProgress?: (percent: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", ticket.upload_url);
+    Object.entries(ticket.required_headers).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+    xhr.upload.addEventListener("progress", event => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100);
+        resolve();
+      } else {
+        reject(new Error(`Object upload failed with status ${xhr.status}`));
+      }
+    });
+    xhr.addEventListener("error", () => reject(new Error("Object upload failed")));
+    xhr.send(file);
   });
 }
 
@@ -131,6 +182,17 @@ export async function startTriviaExtraction(episodeId: string): Promise<JobAccep
 
 export async function getJob(jobId: string): Promise<Job> {
   return request<Job>(`/jobs/${jobId}`);
+}
+
+export async function startRssImport(dryRun: boolean): Promise<FeedImport> {
+  return request<FeedImport>("/imports/rss", {
+    method: "POST",
+    body: JSON.stringify({ dry_run: dryRun })
+  });
+}
+
+export async function getRssImport(importId: string): Promise<FeedImport> {
+  return request<FeedImport>(`/imports/rss/${importId}`);
 }
 
 export async function getTranscript(episodeId: string): Promise<TranscriptResponse> {

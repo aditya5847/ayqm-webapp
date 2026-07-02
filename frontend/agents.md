@@ -40,6 +40,11 @@ editorial; keep admin pages dense and operational.
   explicit user action.
 - Treat only `404`, `405`, and `501` from planned endpoints as unsupported and
   show the view-specific Coming Soon panel. Display other errors normally.
+- Production reads `VITE_API_BASE_URL`; local development continues through the
+  `/api` Vite proxy.
+- Production uploads initialize through `/episodes/uploads`, PUT directly to a
+  presigned R2 URL with byte progress, and finalize through the episode API.
+- RSS backfill controls live at `/admin/imports` and poll `/imports/rss/{id}`.
 
 ## Existing Workflow Rules
 - Upload fields are `file`, `episode_title`, integer `episode_number`, optional
@@ -56,6 +61,8 @@ editorial; keep admin pages dense and operational.
   metadata editing, Transcript defaults to mapped-speaker script blocks with a
   raw JSON alternate, and Trivia remains read-only until an item is explicitly
   put into edit mode.
+- Episode labels must distinguish main episodes, mini episodes, and unnumbered
+  announcements without rendering `Episode null`.
 
 ## Design and Testing
 - Use supplied raster assets and Lucide icons. Do not substitute generated SVG

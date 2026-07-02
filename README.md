@@ -4,6 +4,10 @@ FastAPI and React application for podcast ingestion, transcription, speaker
 mapping, trivia extraction, editorial administration, and published episode
 delivery.
 
+The production deployment uses Cloudflare Pages and R2, a single-replica
+Railway API with DuckDB on a persistent volume, and authenticated external
+transcription workers. Follow the complete [production runbook](docs/deployment.md).
+
 ## Setup
 
 ```sh
@@ -61,6 +65,8 @@ Administrative editing includes:
 - `PATCH /episodes/{episode_id}` for metadata, selected speakers, and publication
 - `PATCH /trivia/{trivia_id}` and `DELETE /trivia/{trivia_id}`
 - `POST /trivia/{trivia_id}/rephrase` for a non-persisted Gemini suggestion
+- `POST /imports/rss` and `GET /imports/rss/{import_id}` for idempotent feed imports
+- `/worker/jobs/*` for bearer-authenticated transcription workers
 
 Starting trivia extraction or full processing returns the episode to draft
 before replacing trivia.
@@ -116,3 +122,7 @@ with `HF_TOKEN` and accepted model terms. Trivia extraction and rephrasing need
 Uploaded audio is stored under `data/uploads/{episode_id}/`; generated artifacts
 are stored under `data/episodes/{episode_id}/`. Do not commit `data/`, generated
 artifacts, DuckDB files, or `.env`.
+
+With `AYQM_STORAGE_BACKEND=r2`, browser uploads and RSS audio go directly to
+private object storage. The API remains the only process allowed to open the
+production DuckDB file.

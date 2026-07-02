@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "argon2-cffi>=25.1.0",
     "ayqm-transcribe",
+    "boto3>=1.40.0",
     "duckdb>=1.4.3",
     "fastapi[standard]>=0.125.0",
     "itsdangerous>=2.2.0",
@@ -15,19 +16,29 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
 ]
 
-[dependency-groups]
-dev = [
-    "httpx2>=0.28.2",
-    "pytest>=9.0.2",
-]
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+ayqm-worker = "backend.app.worker_cli:main"
 
 [tool.uv]
 environments = [
   "sys_platform == 'darwin'"
 ]
 
+[dependency-groups]
+dev = [
+    "httpx2>=0.28.2",
+    "pytest>=9.0.2",
+]
+
 [tool.uv.sources]
 ayqm-transcribe = { path = "../ayqm-transcribe", editable = true }
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

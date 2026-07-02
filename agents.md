@@ -30,6 +30,15 @@ root-level `frontend/` folder.
 - DuckDB stores episode metadata, speakers, episode-speaker selections, jobs,
   transcripts, and trivia rows.
 - Background processing uses FastAPI in-process background tasks for v1.
+- Production uses one FastAPI/Uvicorn process and one Railway replica. DuckDB
+  must never be opened by the Runpod or Mac transcription worker.
+- Production audio and artifacts use private Cloudflare R2 object keys. Local
+  development retains filesystem storage.
+- External transcription workers claim leased jobs through `/worker/jobs/*`,
+  use presigned R2 URLs, and submit artifact references back to the API.
+- RSS imports are keyed by GUID and support main, mini, and unnumbered
+  announcement items. The clean production database must not be seeded from the
+  local DuckDB file.
 - Episode metadata uses `episode_title`, integer `episode_number`,
   optional `episode_description`, optional `published_at`, optional
   `source_url`, `extra_metadata`, and selected `speaker_ids`. Do not reintroduce
@@ -78,3 +87,5 @@ DuckDB VSS/HNSW index for nearest-neighbor search over trivia items.
 - [x] Single-admin authentication and protected administrative APIs added.
 - [x] Episode publishing, public reads, metadata editing, and trivia editing,
       deletion, and AI rephrasing added.
+- [x] R2 direct uploads, RSS import, leased external workers, portable backups,
+      and Cloudflare/Railway deployment configuration added.

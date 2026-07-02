@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
@@ -20,6 +21,7 @@ from ..repositories import (
     list_trivia_items,
     missing_speaker_ids,
     replace_speaker_mapping,
+    set_episode_audio,
     set_episode_published,
     speaker_ids_for_episode,
     update_episode,
@@ -28,6 +30,9 @@ from ..schemas import (
     EpisodeMetadata,
     EpisodeOut,
     EpisodeUpdate,
+    DirectUploadComplete,
+    DirectUploadCreate,
+    DirectUploadTicket,
     JobAccepted,
     ProcessRequest,
     SpeakerLabelsOut,
@@ -40,6 +45,7 @@ from ..schemas import (
 )
 from ..services.speaker_labels import ensure_sample_clip, sanitize_label, speaker_labels_from_transcript, summarize_speaker_labels
 from ..workers import extract_trivia_job, process_episode_job, transcribe_episode_job
+from ..storage import get_object_storage
 
 router = APIRouter(prefix="/episodes", tags=["episodes"], dependencies=[Depends(require_admin)])
 
@@ -95,8 +101,19 @@ def _has_hf_token(request: TranscriptionRequest) -> bool:
 
 
 def _validate_transcription_request(request: TranscriptionRequest) -> None:
-    if request.diarize and not _has_hf_token(request):
+    if request.diarize and not _has_hf_token(request) and not get_settings().external_transcription_worker:
         raise HTTPException(status_code=422, detail="HF_TOKEN is required for diarization")
+
+
+def _local_audio_path(episode_id: str, episode: dict, settings) -> str:
+    object_key = episode.get("audio_object_key")
+    if not object_key:
+        return episode["audio_path"]
+    suffix = Path(object_key).suffix or ".audio"
+    cached = settings.episode_root / episode_id / "audio_cache" / f"source{suffix}"
+    if not cached.exists():
+        get_object_storage(settings).download_file(object_key, cached)
+    return str(cached)
 
 
 def _speaker_label_summary(episode_id: str, episode: dict, transcript: dict, settings) -> list[dict]:
@@ -106,7 +123,7 @@ def _speaker_label_summary(episode_id: str, episode: dict, transcript: dict, set
         for index, sample in enumerate(label["samples"]):
             ensure_sample_clip(
                 ffmpeg_path=settings.ffmpeg_path,
-                audio_path=episode["audio_path"],
+                audio_path=_local_audio_path(episode_id, episode, settings),
                 output_dir=sample_dir,
                 label=label["label"],
                 start=sample["start"],
@@ -118,7 +135,7 @@ def _speaker_label_summary(episode_id: str, episode: dict, transcript: dict, set
             first = label["samples"][0]
             ensure_sample_clip(
                 ffmpeg_path=settings.ffmpeg_path,
-                audio_path=episode["audio_path"],
+                audio_path=_local_audio_path(episode_id, episode, settings),
                 output_dir=sample_dir,
                 label=label["label"],
                 start=first["start"],
@@ -197,6 +214,63 @@ def upload_episode(
     return updated
 
 
+@router.post("/uploads", response_model=DirectUploadTicket, status_code=status.HTTP_201_CREATED)
+def initialize_direct_upload(request: DirectUploadCreate) -> dict:
+    settings = get_settings()
+    if settings.storage_backend != "r2":
+        raise HTTPException(status_code=409, detail="Direct uploads require R2 object storage")
+    with get_connection() as conn:
+        missing = missing_speaker_ids(conn, request.speaker_ids)
+        if missing:
+            raise HTTPException(status_code=422, detail={"unknown_speaker_ids": missing})
+        metadata = EpisodeMetadata.model_validate(request.model_dump(exclude={"file_name", "content_type"}))
+        episode = create_episode(conn, metadata, audio_path="pending", audio_content_type=request.content_type)
+    suffix = Path(request.file_name).suffix.lower() or ".audio"
+    suffix = suffix if re.fullmatch(r"\.[a-z0-9]{1,7}", suffix) else ".audio"
+    object_key = f"episodes/{episode['id']}/source{suffix}"
+    storage = get_object_storage(settings)
+    upload_url = storage.presign_put(object_key, request.content_type, expires_seconds=3600)
+    if not upload_url:
+        raise HTTPException(status_code=500, detail="Could not create direct upload URL")
+    with get_connection() as conn:
+        set_episode_audio(
+            conn,
+            episode["id"],
+            audio_path=object_key,
+            object_key=object_key,
+            content_type=request.content_type,
+        )
+    return {
+        "episode_id": episode["id"],
+        "object_key": object_key,
+        "upload_url": upload_url,
+        "required_headers": {"Content-Type": request.content_type},
+    }
+
+
+@router.post("/{episode_id}/uploads/complete", response_model=EpisodeOut)
+def complete_direct_upload(episode_id: str, request: DirectUploadComplete) -> dict:
+    settings = get_settings()
+    episode = _require_episode(episode_id)
+    object_key = episode.get("audio_object_key")
+    if not object_key:
+        raise HTTPException(status_code=409, detail="Episode has no pending object upload")
+    metadata = get_object_storage(settings).head(object_key)
+    if metadata is None:
+        raise HTTPException(status_code=409, detail="Uploaded object was not found")
+    with get_connection() as conn:
+        updated = set_episode_audio(
+            conn,
+            episode_id,
+            audio_path=object_key,
+            object_key=object_key,
+            content_type=metadata.get("content_type") or episode.get("audio_content_type"),
+            size_bytes=metadata.get("size"),
+            sha256=request.sha256,
+        )
+    return updated
+
+
 @router.get("", response_model=list[EpisodeOut])
 def get_episodes() -> list[dict]:
     with get_connection() as conn:
@@ -233,8 +307,9 @@ def start_transcription(
     _validate_transcription_request(payload)
     settings = get_settings()
     with get_connection() as conn:
-        job = create_job(conn, episode_id, "transcribe")
-    background_tasks.add_task(transcribe_episode_job, job["id"], episode_id, payload, settings)
+        job = create_job(conn, episode_id, "transcribe", payload.model_dump(exclude_none=True))
+    if not settings.external_transcription_worker:
+        background_tasks.add_task(transcribe_episode_job, job["id"], episode_id, payload, settings)
     return {"job_id": job["id"], "episode_id": episode_id, "status": "queued"}
 
 
@@ -343,7 +418,7 @@ def read_speaker_label_sample_by_index(
     sample = samples[sample_index]
     path = ensure_sample_clip(
         ffmpeg_path=settings.ffmpeg_path,
-        audio_path=episode["audio_path"],
+        audio_path=_local_audio_path(episode_id, episode, settings),
         output_dir=settings.episode_root / episode_id / "speaker_samples",
         label=safe_label,
         start=sample["start"],

@@ -30,6 +30,9 @@ known episode speakers.
 
 ## Processing
 - Jobs are stored in DuckDB before background work starts.
+- When `AYQM_EXTERNAL_TRANSCRIPTION_WORKER=true`, transcription remains queued
+  until a bearer-authenticated worker claims it. Leases expire and can be
+  reclaimed; workers never access DuckDB.
 - Background workers update job status to `running`, `succeeded`, or `failed`.
 - Trivia extraction requires a completed diarized transcript and full speaker
   mapping.
@@ -65,6 +68,13 @@ known episode speakers.
 - Transcript and trivia artifacts are under `data/episodes/{episode_id}/`.
 - Do not commit `data/`, audio files, generated transcript/trivia JSON, or
   DuckDB files.
+- Production sets `AYQM_STORAGE_BACKEND=r2`; store only R2 object keys in
+  episode/job rows and issue short-lived presigned URLs for transfer.
+- Production DuckDB lives on a Railway volume, is opened by exactly one API
+  process, and is exported daily to portable R2 backups under the application
+  database lock.
+- RSS imports use `rss_guid` for idempotency. `episode_number` is nullable only
+  for `announcement`; `main` and `mini` episodes remain numbered.
 
 ## Testing
 Tests should monkeypatch `ayqm-transcribe` integration points instead of invoking

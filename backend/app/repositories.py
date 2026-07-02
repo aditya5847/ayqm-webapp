@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -59,6 +59,90 @@ def create_episode(
     return episode
 
 
+def set_episode_audio(
+    conn: DuckDBPyConnection,
+    episode_id: str,
+    *,
+    audio_path: str,
+    object_key: str | None,
+    content_type: str | None,
+    size_bytes: int | None = None,
+    sha256: str | None = None,
+) -> dict[str, Any] | None:
+    conn.execute(
+        """
+        UPDATE episodes SET audio_path = ?, audio_object_key = ?, audio_content_type = ?,
+            audio_size_bytes = ?, audio_sha256 = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        [audio_path, object_key, content_type, size_bytes, sha256, now_utc(), episode_id],
+    )
+    return get_episode(conn, episode_id)
+
+
+def get_episode_by_rss_guid(conn: DuckDBPyConnection, rss_guid: str) -> dict[str, Any] | None:
+    row = conn.execute("SELECT id FROM episodes WHERE rss_guid = ?", [rss_guid]).fetchone()
+    return get_episode(conn, row[0]) if row else None
+
+
+def get_or_create_speaker_by_name(conn: DuckDBPyConnection, name: str) -> dict[str, Any]:
+    row = conn.execute("SELECT id, name FROM speakers WHERE lower(name) = lower(?)", [name]).fetchone()
+    return {"id": row[0], "name": row[1]} if row else create_speaker(conn, name)
+
+
+def create_rss_episode(
+    conn: DuckDBPyConnection,
+    item: dict[str, Any],
+    speaker_ids: list[str],
+) -> tuple[dict[str, Any], bool]:
+    existing = get_episode_by_rss_guid(conn, item["rss_guid"])
+    if existing is not None:
+        conn.execute(
+            """
+            UPDATE episodes SET rss_enclosure_url = ?, audio_content_type = ?,
+                duration_seconds = COALESCE(?, duration_seconds), updated_at = ?
+            WHERE id = ?
+            """,
+            [item["enclosure_url"], item.get("content_type"), item.get("duration_seconds"), now_utc(), existing["id"]],
+        )
+        return get_episode(conn, existing["id"]), False
+
+    episode_id = str(uuid4())
+    timestamp = now_utc()
+    conn.execute(
+        """
+        INSERT INTO episodes (
+            id, episode_title, episode_number, episode_description, published_at,
+            source_url, extra_metadata, audio_path, audio_content_type, is_published,
+            created_at, updated_at, episode_kind, rss_guid, rss_enclosure_url,
+            audio_object_key, audio_size_bytes, duration_seconds, rss_imported_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?::JSON, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            episode_id,
+            item["episode_title"],
+            item.get("episode_number"),
+            item.get("episode_description"),
+            item.get("published_at"),
+            item["enclosure_url"],
+            json.dumps(item.get("extra_metadata", {})),
+            item["object_key"],
+            item.get("content_type"),
+            timestamp,
+            timestamp,
+            item["episode_kind"],
+            item["rss_guid"],
+            item["enclosure_url"],
+            item["object_key"],
+            item.get("size_bytes"),
+            item.get("duration_seconds"),
+            timestamp,
+        ],
+    )
+    replace_episode_speakers(conn, episode_id, speaker_ids)
+    return get_episode(conn, episode_id), True
+
+
 def get_episode(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
@@ -78,6 +162,9 @@ def get_episode(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | N
             COUNT(ti.id) AS trivia_count,
             e.created_at,
             e.updated_at
+            , e.episode_kind, e.rss_guid, e.rss_enclosure_url,
+            e.audio_object_key, e.audio_sha256, e.audio_size_bytes,
+            e.duration_seconds, e.rss_imported_at
         FROM episodes e
         LEFT JOIN transcripts t ON t.episode_id = e.id
         LEFT JOIN trivia_items ti ON ti.episode_id = e.id
@@ -85,7 +172,9 @@ def get_episode(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | N
         GROUP BY
             e.id, e.episode_title, e.episode_number, e.episode_description, e.published_at,
             e.source_url, e.extra_metadata, e.audio_path, e.audio_content_type, e.is_published,
-            t.episode_id, e.created_at, e.updated_at
+            t.episode_id, e.created_at, e.updated_at, e.episode_kind, e.rss_guid,
+            e.rss_enclosure_url, e.audio_object_key, e.audio_sha256,
+            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at
         """,
         [episode_id],
     ).fetchone()
@@ -113,13 +202,18 @@ def list_episodes(conn: DuckDBPyConnection) -> list[dict[str, Any]]:
             COUNT(ti.id) AS trivia_count,
             e.created_at,
             e.updated_at
+            , e.episode_kind, e.rss_guid, e.rss_enclosure_url,
+            e.audio_object_key, e.audio_sha256, e.audio_size_bytes,
+            e.duration_seconds, e.rss_imported_at
         FROM episodes e
         LEFT JOIN transcripts t ON t.episode_id = e.id
         LEFT JOIN trivia_items ti ON ti.episode_id = e.id
         GROUP BY
             e.id, e.episode_title, e.episode_number, e.episode_description, e.published_at,
             e.source_url, e.extra_metadata, e.audio_path, e.audio_content_type, e.is_published,
-            t.episode_id, e.created_at, e.updated_at
+            t.episode_id, e.created_at, e.updated_at, e.episode_kind, e.rss_guid,
+            e.rss_enclosure_url, e.audio_object_key, e.audio_sha256,
+            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at
         ORDER BY e.created_at DESC
         """
     ).fetchall()
@@ -136,13 +230,14 @@ def update_episode(conn: DuckDBPyConnection, episode_id: str, request: EpisodeUp
             """
             UPDATE episodes
             SET episode_title = ?, episode_number = ?, episode_description = ?,
-                published_at = ?, source_url = ?, is_published = ?, updated_at = ?
+                episode_kind = ?, published_at = ?, source_url = ?, is_published = ?, updated_at = ?
             WHERE id = ?
             """,
             [
                 request.episode_title,
                 request.episode_number,
                 request.episode_description,
+                request.episode_kind,
                 request.published_at.replace(tzinfo=None) if request.published_at else None,
                 str(request.source_url) if request.source_url else None,
                 request.is_published,
@@ -211,6 +306,7 @@ def _public_episode(episode: dict[str, Any]) -> dict[str, Any]:
             "id",
             "episode_title",
             "episode_number",
+            "episode_kind",
             "episode_description",
             "published_at",
             "source_url",
@@ -226,6 +322,7 @@ def _episode_from_row(conn: DuckDBPyConnection, row: tuple[Any, ...]) -> dict[st
         "id": episode_id,
         "episode_title": row[1],
         "episode_number": row[2],
+        "episode_kind": row[15] or "main",
         "episode_description": row[3],
         "published_at": row[4],
         "source_url": row[5],
@@ -238,6 +335,13 @@ def _episode_from_row(conn: DuckDBPyConnection, row: tuple[Any, ...]) -> dict[st
         "trivia_count": row[12],
         "created_at": row[13],
         "updated_at": row[14],
+        "rss_guid": row[16],
+        "rss_enclosure_url": row[17],
+        "audio_object_key": row[18],
+        "audio_sha256": row[19],
+        "audio_size_bytes": row[20],
+        "duration_seconds": row[21],
+        "rss_imported_at": row[22],
         "speakers": list_episode_speakers(conn, episode_id),
     }
 
@@ -330,15 +434,23 @@ def speaker_ids_for_episode(conn: DuckDBPyConnection, episode_id: str) -> list[s
     return [row[0] for row in rows]
 
 
-def create_job(conn: DuckDBPyConnection, episode_id: str, kind: JobKind) -> dict[str, Any]:
+def create_job(
+    conn: DuckDBPyConnection,
+    episode_id: str,
+    kind: JobKind,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     job_id = str(uuid4())
     timestamp = now_utc()
     conn.execute(
         """
-        INSERT INTO jobs
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO jobs (
+            id, episode_id, kind, status, error, created_at, started_at, finished_at,
+            payload, attempts, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?, ?)
         """,
-        [job_id, episode_id, kind, "queued", None, timestamp, None, None],
+        [job_id, episode_id, kind, "queued", None, timestamp, None, None, json.dumps(payload or {}), 0, timestamp],
     )
     job = get_job(conn, job_id)
     if job is None:
@@ -349,7 +461,9 @@ def create_job(conn: DuckDBPyConnection, episode_id: str, kind: JobKind) -> dict
 def get_job(conn: DuckDBPyConnection, job_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT id, episode_id, kind, status, error, created_at, started_at, finished_at
+        SELECT id, episode_id, kind, status, error, created_at, started_at, finished_at,
+               progress_stage, progress_current, progress_total, attempts,
+               payload, lease_token, lease_expires_at, artifact_key, artifact_sha256
         FROM jobs
         WHERE id = ?
         """,
@@ -366,6 +480,15 @@ def get_job(conn: DuckDBPyConnection, job_id: str) -> dict[str, Any] | None:
         "created_at": row[5],
         "started_at": row[6],
         "finished_at": row[7],
+        "progress_stage": row[8],
+        "progress_current": row[9],
+        "progress_total": row[10],
+        "attempts": row[11] or 0,
+        "payload": _loads_json(row[12], {}),
+        "lease_token": row[13],
+        "lease_expires_at": row[14],
+        "artifact_key": row[15],
+        "artifact_sha256": row[16],
     }
 
 
@@ -378,16 +501,89 @@ def update_job_status(
     timestamp = now_utc()
     if status == "running":
         conn.execute(
-            "UPDATE jobs SET status = ?, started_at = ?, error = NULL WHERE id = ?",
-            [status, timestamp, job_id],
+            "UPDATE jobs SET status = ?, started_at = ?, error = NULL, updated_at = ? WHERE id = ?",
+            [status, timestamp, timestamp, job_id],
         )
     elif status in {"succeeded", "failed"}:
         conn.execute(
-            "UPDATE jobs SET status = ?, finished_at = ?, error = ? WHERE id = ?",
-            [status, timestamp, error, job_id],
+            """UPDATE jobs SET status = ?, finished_at = ?, error = ?, updated_at = ?,
+                   lease_token = NULL, lease_expires_at = NULL WHERE id = ?""",
+            [status, timestamp, error, timestamp, job_id],
         )
     else:
-        conn.execute("UPDATE jobs SET status = ?, error = ? WHERE id = ?", [status, error, job_id])
+        conn.execute(
+            "UPDATE jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?",
+            [status, error, timestamp, job_id],
+        )
+
+
+def claim_transcription_job(
+    conn: DuckDBPyConnection,
+    lease_token: str,
+    lease_seconds: int,
+) -> dict[str, Any] | None:
+    now = now_utc()
+    conn.execute(
+        """
+        UPDATE jobs
+        SET status = 'queued', lease_token = NULL, lease_expires_at = NULL,
+            progress_stage = 'requeued', updated_at = ?
+        WHERE kind = 'transcribe' AND status = 'running' AND lease_expires_at < ?
+        """,
+        [now, now],
+    )
+    row = conn.execute(
+        """
+        SELECT id FROM jobs
+        WHERE kind = 'transcribe' AND status = 'queued'
+        ORDER BY created_at, id
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    expires = now + timedelta(seconds=lease_seconds)
+    conn.execute(
+        """
+        UPDATE jobs
+        SET status = 'running', started_at = COALESCE(started_at, ?), attempts = attempts + 1,
+            lease_token = ?, lease_expires_at = ?, progress_stage = 'claimed', updated_at = ?
+        WHERE id = ? AND status = 'queued'
+        """,
+        [now, lease_token, expires, now, row[0]],
+    )
+    return get_job(conn, row[0])
+
+
+def update_job_progress(
+    conn: DuckDBPyConnection,
+    job_id: str,
+    lease_token: str,
+    stage: str,
+    current: float | None,
+    total: float | None,
+    lease_seconds: int,
+) -> bool:
+    now = now_utc()
+    result = conn.execute(
+        """
+        UPDATE jobs SET progress_stage = ?, progress_current = ?, progress_total = ?,
+            lease_expires_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'running' AND lease_token = ? AND lease_expires_at >= ?
+        RETURNING id
+        """,
+        [stage, current, total, now + timedelta(seconds=lease_seconds), now, job_id, lease_token, now],
+    ).fetchone()
+    return result is not None
+
+
+def worker_lease_matches(conn: DuckDBPyConnection, job_id: str, lease_token: str) -> bool:
+    row = conn.execute(
+        """SELECT COUNT(*) FROM jobs
+           WHERE id = ? AND status = 'running' AND lease_token = ? AND lease_expires_at >= ?""",
+        [job_id, lease_token, now_utc()],
+    ).fetchone()
+    return bool(row and row[0])
 
 
 def save_transcript(

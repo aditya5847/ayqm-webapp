@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { AdminEpisodesPage, AdminGate, AdminLoginPage, SpeakersPage, UploadPage } from "./admin";
+import { AdminEpisodesPage, AdminGate, AdminLoginPage, RssImportPage, SpeakersPage, UploadPage } from "./admin";
 import {
   EpisodeDetailsTab, EpisodeOverviewTab, EpisodeSpeakerMappingTab,
   EpisodeTranscriptTab, EpisodeTriviaTab, EpisodeWorkspaceLayout
@@ -21,6 +21,7 @@ function App() {
         <Route index element={<Navigate to="episodes" replace />} />
         <Route path="episodes" element={<AdminEpisodesPage />} />
         <Route path="episodes/new" element={<UploadPage />} />
+        <Route path="imports" element={<RssImportPage />} />
         <Route path="episodes/:episodeId" element={<EpisodeWorkspaceLayout />}>
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<EpisodeOverviewTab />} />

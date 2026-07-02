@@ -14,7 +14,8 @@ describe("episode workspace routing", () => {
     renderApp("/admin/episodes/episode-1");
 
     expect(await screen.findByRole("link", { name: /Back to episodes/ })).toHaveAttribute("href", "/admin/episodes");
-    expect(await screen.findByRole("heading", { name: "Episode overview" })).toBeInTheDocument();
+    expect((await screen.findAllByText("Episode 12")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("heading", { name: "Episode overview" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Overview" })).toHaveClass("active");
     expect(screen.queryByRole("button", { name: "Save details" })).not.toBeInTheDocument();
   });

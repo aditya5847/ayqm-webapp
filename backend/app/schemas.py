@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 JobKind = Literal["transcribe", "extract_trivia", "process"]
+EpisodeKind = Literal["main", "mini", "announcement"]
 
 
 class AdminLogin(BaseModel):
@@ -79,7 +80,8 @@ class AskerOut(BaseModel):
 class EpisodeOut(BaseModel):
     id: str
     episode_title: str
-    episode_number: int
+    episode_number: int | None
+    episode_kind: EpisodeKind = "main"
     episode_description: str | None = None
     published_at: datetime | None = None
     source_url: str | None = None
@@ -87,6 +89,11 @@ class EpisodeOut(BaseModel):
     speakers: list[SpeakerOut] = Field(default_factory=list)
     audio_path: str
     audio_content_type: str | None = None
+    audio_object_key: str | None = None
+    audio_size_bytes: int | None = None
+    duration_seconds: float | None = None
+    rss_guid: str | None = None
+    rss_enclosure_url: str | None = None
     transcript_status: str
     trivia_status: str
     trivia_count: int
@@ -104,6 +111,10 @@ class JobOut(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    progress_stage: str | None = None
+    progress_current: float | None = None
+    progress_total: float | None = None
+    attempts: int = 0
 
 
 class JobAccepted(BaseModel):
@@ -156,12 +167,42 @@ class TriviaItemOut(BaseModel):
 
 class EpisodeUpdate(BaseModel):
     episode_title: str = Field(min_length=1)
-    episode_number: int = Field(ge=1)
+    episode_number: int | None = Field(default=None, ge=1)
+    episode_kind: EpisodeKind = "main"
     episode_description: str | None = None
     published_at: datetime | None = None
     source_url: HttpUrl | None = None
     speaker_ids: list[str] = Field(min_length=1)
     is_published: bool
+
+    @model_validator(mode="after")
+    def numbered_content_requires_number(self):
+        if self.episode_kind != "announcement" and self.episode_number is None:
+            raise ValueError("episode_number is required for main and mini episodes")
+        return self
+
+
+class DirectUploadCreate(BaseModel):
+    episode_title: str = Field(min_length=1)
+    episode_number: int = Field(ge=1)
+    episode_description: str | None = None
+    published_at: datetime | None = None
+    source_url: HttpUrl | None = None
+    speaker_ids: list[str] = Field(min_length=1)
+    extra_metadata: dict[str, Any] = Field(default_factory=dict)
+    file_name: str = Field(min_length=1)
+    content_type: str = Field(min_length=1)
+
+
+class DirectUploadTicket(BaseModel):
+    episode_id: str
+    object_key: str
+    upload_url: str
+    required_headers: dict[str, str]
+
+
+class DirectUploadComplete(BaseModel):
+    sha256: str | None = None
 
 
 class TriviaItemUpdate(BaseModel):
@@ -181,12 +222,70 @@ class TriviaRephraseOut(BaseModel):
 class PublicEpisodeOut(BaseModel):
     id: str
     episode_title: str
-    episode_number: int
+    episode_number: int | None
+    episode_kind: EpisodeKind = "main"
     episode_description: str | None = None
     published_at: datetime | None = None
     source_url: str | None = None
     speakers: list[SpeakerOut] = Field(default_factory=list)
     trivia_count: int
+
+
+class WorkerProgress(BaseModel):
+    stage: str = Field(min_length=1)
+    current: float | None = Field(default=None, ge=0)
+    total: float | None = Field(default=None, gt=0)
+
+
+class WorkerJobClaim(BaseModel):
+    worker_name: str = Field(min_length=1)
+
+
+class WorkerJobLease(BaseModel):
+    job: JobOut
+    lease_token: str
+    audio_url: str
+    audio_content_type: str | None = None
+    transcript_object_key: str
+    transcript_upload_url: str
+    transcript_upload_headers: dict[str, str]
+    transcription: TranscriptionRequest
+
+
+class WorkerHeartbeat(BaseModel):
+    lease_token: str
+    progress: WorkerProgress
+
+
+class WorkerComplete(BaseModel):
+    lease_token: str
+    transcript_object_key: str
+    transcript_sha256: str | None = None
+
+
+class WorkerFailure(BaseModel):
+    lease_token: str
+    error: str = Field(min_length=1)
+
+
+class FeedImportRequest(BaseModel):
+    feed_url: HttpUrl | None = None
+    dry_run: bool = False
+
+
+class FeedImportOut(BaseModel):
+    id: str
+    feed_url: str
+    status: str
+    dry_run: bool
+    discovered_count: int
+    imported_count: int
+    skipped_count: int
+    failed_count: int
+    error: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 class PublicTriviaItemOut(BaseModel):
