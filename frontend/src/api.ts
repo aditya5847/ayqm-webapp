@@ -1,13 +1,18 @@
 import type {
+  AdminSession,
   Episode,
+  EpisodeUpdateInput,
   EpisodeUploadInput,
   Job,
   JobAccepted,
+  PublicEpisode,
   Speaker,
   SpeakerLabels,
   SpeakerMappingResponse,
   TranscriptResponse,
-  TriviaItem
+  TriviaItem,
+  TriviaRephraseSuggestion,
+  TriviaUpdateInput
 } from "./types";
 
 const API_BASE = "/api";
@@ -22,6 +27,10 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
+}
+
+export function isUnsupportedFeature(error: unknown): boolean {
+  return error instanceof ApiError && [404, 405, 501].includes(error.status);
 }
 
 export function apiAssetUrl(path: string | null): string | null {
@@ -72,6 +81,22 @@ export async function listEpisodes(): Promise<Episode[]> {
   return request<Episode[]>("/episodes");
 }
 
+export async function listPublicEpisodes(): Promise<PublicEpisode[]> {
+  return request<PublicEpisode[]>("/public/episodes");
+}
+
+export async function getPublicEpisode(episodeId: string): Promise<PublicEpisode> {
+  return request<PublicEpisode>(`/public/episodes/${episodeId}`);
+}
+
+export async function getPublicEpisodeTrivia(episodeId: string): Promise<TriviaItem[]> {
+  return request<TriviaItem[]>(`/public/episodes/${episodeId}/trivia`);
+}
+
+export async function listPublicTrivia(limit = 24, offset = 0): Promise<TriviaItem[]> {
+  return request<TriviaItem[]>(`/public/trivia?limit=${limit}&offset=${offset}`);
+}
+
 export async function getEpisode(episodeId: string): Promise<Episode> {
   return request<Episode>(`/episodes/${episodeId}`);
 }
@@ -80,6 +105,13 @@ export async function uploadEpisode(input: EpisodeUploadInput): Promise<Episode>
   return request<Episode>("/episodes", {
     method: "POST",
     body: buildEpisodeFormData(input)
+  });
+}
+
+export async function updateEpisode(episodeId: string, input: EpisodeUpdateInput): Promise<Episode> {
+  return request<Episode>(`/episodes/${episodeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
   });
 }
 
@@ -109,6 +141,36 @@ export async function getTrivia(episodeId: string): Promise<TriviaItem[]> {
   return request<TriviaItem[]>(`/episodes/${episodeId}/trivia`);
 }
 
+export async function updateTriviaItem(triviaId: string, input: TriviaUpdateInput): Promise<TriviaItem> {
+  return request<TriviaItem>(`/trivia/${triviaId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteTriviaItem(triviaId: string): Promise<void> {
+  await request<void>(`/trivia/${triviaId}`, { method: "DELETE" });
+}
+
+export async function rephraseTriviaItem(triviaId: string): Promise<TriviaRephraseSuggestion> {
+  return request<TriviaRephraseSuggestion>(`/trivia/${triviaId}/rephrase`, { method: "POST" });
+}
+
+export async function getAdminSession(): Promise<AdminSession> {
+  return request<AdminSession>("/auth/session");
+}
+
+export async function loginAdmin(password: string): Promise<AdminSession> {
+  return request<AdminSession>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ password })
+  });
+}
+
+export async function logoutAdmin(): Promise<void> {
+  await request<void>("/auth/logout", { method: "POST" });
+}
+
 export async function getSpeakerLabels(episodeId: string): Promise<SpeakerLabels> {
   return request<SpeakerLabels>(`/episodes/${episodeId}/speaker-labels`);
 }
@@ -131,7 +193,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers
+    headers,
+    credentials: "include"
   });
 
   if (response.status === 204) {

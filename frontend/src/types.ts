@@ -20,8 +20,34 @@ export interface Episode {
   transcript_status: string;
   trivia_status: string;
   trivia_count: number;
+  is_published?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface PublicEpisode {
+  id: string;
+  episode_title: string;
+  episode_number: number;
+  episode_description: string | null;
+  published_at: string | null;
+  source_url: string | null;
+  speakers: Speaker[];
+  trivia_count: number;
+}
+
+export interface AdminSession {
+  authenticated: boolean;
+}
+
+export interface EpisodeUpdateInput {
+  episode_title: string;
+  episode_number: number;
+  episode_description: string | null;
+  published_at: string | null;
+  source_url: string | null;
+  speaker_ids: string[];
+  is_published: boolean;
 }
 
 export interface JobAccepted {
@@ -86,6 +112,20 @@ export interface TriviaItem {
   asker: Speaker | null;
   confidence: string;
   created_at: string;
+}
+
+export interface TriviaUpdateInput {
+  type: string;
+  question: string | null;
+  answer: string | null;
+  keywords: string[];
+  confidence: string;
+  asker_speaker_id: string | null;
+}
+
+export interface TriviaRephraseSuggestion {
+  question: string | null;
+  answer: string | null;
 }
 
 export interface EpisodeUploadInput {

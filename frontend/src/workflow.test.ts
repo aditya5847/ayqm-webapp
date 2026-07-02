@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEpisodeFormData } from "./api";
+import { ApiError, buildEpisodeFormData, isUnsupportedFeature } from "./api";
 import { isSpeakerMappingComplete, shouldPollJob, triviaAskerName } from "./workflow";
 import type { Job, SpeakerLabels, TriviaItem } from "./types";
 
@@ -66,6 +66,12 @@ describe("frontend workflow helpers", () => {
     };
 
     expect(triviaAskerName(item)).toBe("Ada");
+  });
+
+  it("treats only unimplemented endpoint responses as deferred features", () => {
+    expect(isUnsupportedFeature(new ApiError(404, "missing"))).toBe(true);
+    expect(isUnsupportedFeature(new ApiError(501, "planned"))).toBe(true);
+    expect(isUnsupportedFeature(new ApiError(500, "broken"))).toBe(false);
   });
 });
 
