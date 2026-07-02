@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     whisper_batch_size: int = Field(default=16, alias="AYQM_WHISPER_BATCH_SIZE")
     gemini_model: str | None = Field(default=None, alias="AYQM_GEMINI_MODEL")
     ffmpeg_path: str = Field(default="ffmpeg", alias="AYQM_FFMPEG_PATH")
+    admin_password_hash: str | None = Field(default=None, alias="AYQM_ADMIN_PASSWORD_HASH")
+    session_secret: str | None = Field(default=None, alias="AYQM_SESSION_SECRET")
+    session_cookie_secure: bool = Field(default=False, alias="AYQM_SESSION_COOKIE_SECURE")
+    session_max_age_seconds: int = Field(default=604800, alias="AYQM_SESSION_MAX_AGE_SECONDS", ge=60)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

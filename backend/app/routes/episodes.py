@@ -3,11 +3,12 @@ import os
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from ..config import get_settings
+from ..auth import require_admin
 from ..db import get_connection
 from ..repositories import (
     create_episode,
@@ -19,11 +20,14 @@ from ..repositories import (
     list_trivia_items,
     missing_speaker_ids,
     replace_speaker_mapping,
+    set_episode_published,
     speaker_ids_for_episode,
+    update_episode,
 )
 from ..schemas import (
     EpisodeMetadata,
     EpisodeOut,
+    EpisodeUpdate,
     JobAccepted,
     ProcessRequest,
     SpeakerLabelsOut,
@@ -37,7 +41,7 @@ from ..schemas import (
 from ..services.speaker_labels import ensure_sample_clip, sanitize_label, speaker_labels_from_transcript, summarize_speaker_labels
 from ..workers import extract_trivia_job, process_episode_job, transcribe_episode_job
 
-router = APIRouter(prefix="/episodes", tags=["episodes"])
+router = APIRouter(prefix="/episodes", tags=["episodes"], dependencies=[Depends(require_admin)])
 
 
 def _parse_json_field(raw_value: str, field_name: str) -> object:
@@ -204,6 +208,20 @@ def get_episode_detail(episode_id: str) -> dict:
     return _require_episode(episode_id)
 
 
+@router.patch("/{episode_id}", response_model=EpisodeOut)
+def update_episode_detail(episode_id: str, request: EpisodeUpdate) -> dict:
+    with get_connection() as conn:
+        if get_episode(conn, episode_id) is None:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        if len(set(request.speaker_ids)) != len(request.speaker_ids):
+            raise HTTPException(status_code=422, detail="speaker_ids must not contain duplicates")
+        missing = missing_speaker_ids(conn, request.speaker_ids)
+        if missing:
+            raise HTTPException(status_code=422, detail={"unknown_speaker_ids": missing})
+        episode = update_episode(conn, episode_id, request)
+    return episode
+
+
 @router.post("/{episode_id}/transcribe", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
 def start_transcription(
     episode_id: str,
@@ -232,6 +250,7 @@ def start_trivia_extraction(
         if transcript is None:
             raise HTTPException(status_code=409, detail="Episode has no transcript yet")
         _require_complete_speaker_mapping(conn, episode_id, transcript)
+        set_episode_published(conn, episode_id, False)
         job = create_job(conn, episode_id, "extract_trivia")
     payload = request or TriviaExtractionRequest()
     settings = get_settings()
@@ -255,6 +274,7 @@ def start_processing(
         )
     settings = get_settings()
     with get_connection() as conn:
+        set_episode_published(conn, episode_id, False)
         job = create_job(conn, episode_id, "process")
     background_tasks.add_task(process_episode_job, job["id"], episode_id, payload, settings)
     return {"job_id": job["id"], "episode_id": episode_id, "status": "queued"}

@@ -39,6 +39,7 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                 extra_metadata JSON NOT NULL,
                 audio_path VARCHAR NOT NULL,
                 audio_content_type VARCHAR,
+                is_published BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP NOT NULL,
                 updated_at TIMESTAMP NOT NULL
             )
@@ -110,6 +111,7 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                 timestamp_display VARCHAR NOT NULL,
                 speaker_diarization JSON NOT NULL,
                 asker_speaker_id VARCHAR,
+                asker_is_manual BOOLEAN NOT NULL DEFAULT FALSE,
                 confidence VARCHAR NOT NULL,
                 created_at TIMESTAMP NOT NULL
             )
@@ -150,6 +152,7 @@ def _migrate_episodes(conn: DuckDBPyConnection) -> None:
         or {"episode_title", "episode_description"}.issubset(columns)
         and "show_name" not in columns
         and episode_number_is_int
+        and "is_published" in columns
     ):
         return
 
@@ -165,6 +168,7 @@ def _migrate_episodes(conn: DuckDBPyConnection) -> None:
             extra_metadata JSON NOT NULL,
             audio_path VARCHAR NOT NULL,
             audio_content_type VARCHAR,
+            is_published BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMP NOT NULL,
             updated_at TIMESTAMP NOT NULL
         )
@@ -175,6 +179,7 @@ def _migrate_episodes(conn: DuckDBPyConnection) -> None:
         "COALESCE(TRY_CAST(episode_number AS INTEGER), 1)" if "episode_number" in columns else "1"
     )
     description_expr = "episode_description" if "episode_description" in columns else "NULL"
+    is_published_expr = "COALESCE(is_published, FALSE)" if "is_published" in columns else "FALSE"
     conn.execute(
         f"""
         INSERT INTO episodes_migrated
@@ -188,6 +193,7 @@ def _migrate_episodes(conn: DuckDBPyConnection) -> None:
             extra_metadata,
             audio_path,
             audio_content_type,
+            {is_published_expr},
             created_at,
             updated_at
         FROM episodes
@@ -199,9 +205,10 @@ def _migrate_episodes(conn: DuckDBPyConnection) -> None:
 
 def _migrate_trivia_items(conn: DuckDBPyConnection) -> None:
     columns = _table_columns(conn, "trivia_items")
-    if not columns or "asker_speaker_id" in columns:
+    if not columns or {"asker_speaker_id", "asker_is_manual"}.issubset(columns):
         return
 
+    asker_expr = "asker_speaker_id" if "asker_speaker_id" in columns else "NULL"
     conn.execute(
         """
         CREATE TABLE trivia_items_migrated (
@@ -216,18 +223,23 @@ def _migrate_trivia_items(conn: DuckDBPyConnection) -> None:
             timestamp_display VARCHAR NOT NULL,
             speaker_diarization JSON NOT NULL,
             asker_speaker_id VARCHAR,
+            asker_is_manual BOOLEAN NOT NULL DEFAULT FALSE,
             confidence VARCHAR NOT NULL,
             created_at TIMESTAMP NOT NULL
         )
         """
     )
     conn.execute(
-        """
+        f"""
         INSERT INTO trivia_items_migrated
         SELECT
             id, episode_id, type, question, answer, keywords,
             timestamp_start, timestamp_end, timestamp_display,
-            speaker_diarization, NULL, confidence, created_at
+            speaker_diarization,
+            {asker_expr},
+            FALSE,
+            confidence,
+            created_at
         FROM trivia_items
         """
     )

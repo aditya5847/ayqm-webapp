@@ -8,6 +8,14 @@ JobStatus = Literal["queued", "running", "succeeded", "failed"]
 JobKind = Literal["transcribe", "extract_trivia", "process"]
 
 
+class AdminLogin(BaseModel):
+    password: str = Field(min_length=1)
+
+
+class AdminSession(BaseModel):
+    authenticated: bool
+
+
 class EpisodeMetadata(BaseModel):
     episode_title: str = Field(min_length=1)
     episode_number: int = Field(ge=1)
@@ -82,6 +90,7 @@ class EpisodeOut(BaseModel):
     transcript_status: str
     trivia_status: str
     trivia_count: int
+    is_published: bool
     created_at: datetime
     updated_at: datetime
 
@@ -140,6 +149,56 @@ class TriviaItemOut(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     timestamps: dict[str, Any]
     speaker_diarization: dict[str, Any] = Field(default_factory=dict)
+    asker: AskerOut | None = None
+    confidence: str
+    created_at: datetime
+
+
+class EpisodeUpdate(BaseModel):
+    episode_title: str = Field(min_length=1)
+    episode_number: int = Field(ge=1)
+    episode_description: str | None = None
+    published_at: datetime | None = None
+    source_url: HttpUrl | None = None
+    speaker_ids: list[str] = Field(min_length=1)
+    is_published: bool
+
+
+class TriviaItemUpdate(BaseModel):
+    type: str | None = None
+    question: str | None = None
+    answer: str | None = None
+    keywords: list[str] | None = None
+    confidence: str | None = None
+    asker_speaker_id: str | None = None
+
+
+class TriviaRephraseOut(BaseModel):
+    question: str | None = None
+    answer: str | None = None
+
+
+class PublicEpisodeOut(BaseModel):
+    id: str
+    episode_title: str
+    episode_number: int
+    episode_description: str | None = None
+    published_at: datetime | None = None
+    source_url: str | None = None
+    speakers: list[SpeakerOut] = Field(default_factory=list)
+    trivia_count: int
+
+
+class PublicTriviaItemOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: str
+    episode_id: str
+    type: str
+    question: str | None = None
+    answer: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    timestamps: dict[str, Any]
     asker: AskerOut | None = None
     confidence: str
     created_at: datetime

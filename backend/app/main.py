@@ -3,8 +3,11 @@ from fastapi import FastAPI
 from .config import get_settings
 from .db import initialize_database
 from .routes.episodes import router as episodes_router
+from .routes.auth import router as auth_router
 from .routes.jobs import router as jobs_router
+from .routes.public import router as public_router
 from .routes.speakers import router as speakers_router
+from .routes.trivia import router as trivia_router
 
 
 def create_app() -> FastAPI:
@@ -13,9 +16,12 @@ def create_app() -> FastAPI:
     initialize_database(settings.database_path)
 
     app = FastAPI(title="AYQM Webapp API", version="0.1.0")
+    app.include_router(auth_router)
     app.include_router(episodes_router)
     app.include_router(jobs_router)
     app.include_router(speakers_router)
+    app.include_router(trivia_router)
+    app.include_router(public_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

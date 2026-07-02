@@ -47,6 +47,11 @@ root-level `frontend/` folder.
   extractor-provided IDs can repeat across episodes.
 
 ## Current API Notes
+- Admin APIs require the signed cookie obtained from `POST /auth/login`.
+- Public published-content reads are exposed under `/public`; their schemas omit
+  paths, processing state, raw diarization, and draft content.
+- Episode-level `is_published` defaults to false. Starting trivia extraction or
+  processing returns the episode to draft.
 - `POST /episodes` is multipart form data with fields: `file`,
   `episode_title`, integer `episode_number`, optional `episode_description`,
   optional `published_at`, optional `source_url`, required JSON-string
@@ -70,3 +75,6 @@ DuckDB VSS/HNSW index for nearest-neighbor search over trivia items.
 - [x] Global speaker CRUD, episode speaker selection, and speaker mapping
       endpoints added.
 - [x] Backend tests added with mocked transcription/extraction.
+- [x] Single-admin authentication and protected administrative APIs added.
+- [x] Episode publishing, public reads, metadata editing, and trivia editing,
+      deletion, and AI rephrasing added.

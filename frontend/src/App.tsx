@@ -1,5 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { AdminEpisodePage, AdminEpisodesPage, AdminGate, AdminLoginPage, SpeakersPage, UploadPage } from "./admin";
+import { AdminEpisodesPage, AdminGate, AdminLoginPage, SpeakersPage, UploadPage } from "./admin";
+import {
+  EpisodeDetailsTab, EpisodeOverviewTab, EpisodeSpeakerMappingTab,
+  EpisodeTranscriptTab, EpisodeTriviaTab, EpisodeWorkspaceLayout
+} from "./episode-admin";
 import { AboutPage, HomePage, PublicEpisodePage, PublicEpisodesPage, PublicLayout, PublicTriviaPage } from "./public";
 
 function App() {
@@ -17,7 +21,14 @@ function App() {
         <Route index element={<Navigate to="episodes" replace />} />
         <Route path="episodes" element={<AdminEpisodesPage />} />
         <Route path="episodes/new" element={<UploadPage />} />
-        <Route path="episodes/:episodeId" element={<AdminEpisodePage />} />
+        <Route path="episodes/:episodeId" element={<EpisodeWorkspaceLayout />}>
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<EpisodeOverviewTab />} />
+          <Route path="details" element={<EpisodeDetailsTab />} />
+          <Route path="speaker-mapping" element={<EpisodeSpeakerMappingTab />} />
+          <Route path="transcript" element={<EpisodeTranscriptTab />} />
+          <Route path="trivia" element={<EpisodeTriviaTab />} />
+        </Route>
         <Route path="speakers" element={<SpeakersPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

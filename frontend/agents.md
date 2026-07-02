@@ -20,7 +20,8 @@ editorial; keep admin pages dense and operational.
   researched `/about` page.
 - Admin login: `/admin/login`.
 - Admin: `/admin/episodes`, `/admin/episodes/new`,
-  `/admin/episodes/:episodeId`, and `/admin/speakers`.
+  `/admin/episodes/:episodeId/{overview,details,speaker-mapping,transcript,trivia}`,
+  and `/admin/speakers`. The bare episode route redirects to `overview`.
 - Keep public and admin layouts separate. Public routes must not expose admin
   metadata, filesystem paths, raw diarization labels, or unpublished content.
 
@@ -51,6 +52,10 @@ editorial; keep admin pages dense and operational.
 - Use top-level trivia `asker` for identity. Never present
   `speaker_diarization.asker_speaker` as a real speaker.
 - Public listening links use `source_url`; do not expose uploaded audio.
+- Episode workspaces use routed tabs. Overview is read-only, Details owns
+  metadata editing, Transcript defaults to mapped-speaker script blocks with a
+  raw JSON alternate, and Trivia remains read-only until an item is explicitly
+  put into edit mode.
 
 ## Design and Testing
 - Use supplied raster assets and Lucide icons. Do not substitute generated SVG

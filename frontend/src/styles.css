@@ -247,11 +247,26 @@ h1, h2, h3 { overflow-wrap: anywhere; }
 .section-heading { align-items: end; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 15px; }
 .section-heading > div { align-items: center; display: flex; gap: 8px; }
 .section-heading svg { height: 18px; width: 18px; }
-.section-heading h3 { font-size: 18px; margin: 0; }
+.section-heading h2, .section-heading h3 { font-size: 18px; margin: 0; }
 .section-heading p { color: var(--muted); font-size: 13px; margin: 0; }
 .section-action { margin-top: 14px; }
-.episode-workspace-heading { align-items: center; display: flex; gap: 20px; justify-content: space-between; }
-.episode-workspace-heading h2 { font-size: 26px; margin: 0; }
+.episode-workspace { min-width: 0; }
+.back-link { align-items: center; color: #55514b; display: inline-flex; font-size: 13px; font-weight: 800; gap: 6px; margin-bottom: 22px; text-decoration: none; }
+.back-link:hover { color: #9f251f; }
+.episode-workspace-heading { align-items: center; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 22px; }
+.episode-workspace-heading h1 { font-size: 32px; line-height: 1.08; margin: 0; }
+.episode-tabs { border-bottom: 1px solid #bbb9b2; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; }
+.episode-tabs a { border-bottom: 4px solid transparent; color: #65615a; flex: 0 0 auto; font-size: 13px; font-weight: 800; padding: 11px 14px 10px; text-decoration: none; }
+.episode-tabs a:hover { background: #ecebe6; color: #171717; }
+.episode-tabs a.active { border-color: var(--red); color: #171717; }
+.episode-tab-panel { padding-top: 25px; }
+.workspace-section + .workspace-section { border-top: 1px solid #c9c8c2; margin-top: 34px; padding-top: 20px; }
+.episode-detail-grid { display: grid; gap: 1px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; max-width: 960px; }
+.detail-item { background: #fff; border: 1px solid #deddd7; display: grid; gap: 7px; min-height: 82px; padding: 14px; }
+.detail-item.wide { grid-column: 1 / -1; }
+.detail-item dt { color: #716d66; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.detail-item dd { line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
+.detail-item a { align-items: center; display: inline-flex; gap: 5px; }
 
 .table-wrap { background: #fff; border: 1px solid #d2d1cc; border-radius: 5px; overflow-x: auto; }
 table { border-collapse: collapse; min-width: 820px; width: 100%; }
@@ -298,11 +313,31 @@ audio { max-width: 100%; width: 100%; }
 .sample-row { align-items: center; display: grid; gap: 10px; grid-template-columns: 220px 90px minmax(0, 1fr); }
 .sample-row p { margin: 0; }
 .json-panel { background: #1d1d1d; border-radius: 4px; color: #f3f3ef; max-height: 440px; overflow: auto; padding: 15px; }
+.transcript-heading { align-items: start; display: flex; gap: 20px; justify-content: space-between; }
+.segmented-control { background: #dfded8; border: 1px solid #aaa8a2; border-radius: 4px; display: inline-grid; flex: 0 0 auto; grid-template-columns: repeat(2, 1fr); padding: 2px; }
+.segmented-control button { background: transparent; border: 0; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 800; min-height: 32px; padding: 5px 13px; }
+.segmented-control button[aria-pressed="true"] { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+.script-view { background: #fff; border: 1px solid #d2d1cc; border-radius: 4px; max-width: 960px; }
+.script-block { display: grid; gap: 8px; grid-template-columns: 170px minmax(0, 1fr); padding: 17px; }
+.script-block + .script-block { border-top: 1px solid #dfded9; }
+.script-block header { display: grid; gap: 5px; align-content: start; }
+.script-block header strong { color: #1b6f7b; font-size: 13px; overflow-wrap: anywhere; }
+.script-block header span { color: var(--muted); font-size: 11px; }
+.script-block p { font-family: Georgia, serif; font-size: 16px; line-height: 1.6; margin: 0; }
 .admin-trivia-list { display: grid; gap: 14px; }
 .admin-trivia-item { background: #fff; border: 1px solid #d2d1cc; border-left: 6px solid var(--cyan); border-radius: 4px; padding: 16px; }
 .trivia-editor-header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 14px; }
 .trivia-editor-header > div { display: flex; gap: 12px; }
 .trivia-editor-header span { color: var(--muted); text-transform: uppercase; }
+.trivia-read-card h3 { font-size: 21px; line-height: 1.25; margin-bottom: 18px; max-width: 850px; }
+.compact-button { min-height: 34px; padding: 6px 10px; }
+.trivia-answer { border-left: 4px solid var(--yellow); margin-bottom: 16px; padding: 5px 0 5px 12px; }
+.trivia-answer span { color: var(--muted); font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.trivia-answer p { font-family: Georgia, serif; line-height: 1.5; margin: 4px 0 0; }
+.trivia-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.trivia-meta span { background: #ecebe6; border-radius: 999px; color: #5e5a53; font-size: 11px; font-weight: 800; padding: 4px 8px; }
+.trivia-edit-actions { margin-top: 15px; }
+.danger-button { color: #9a2822; margin-left: auto; }
 .suggestion-panel { background: #fff7ce; border-left: 5px solid var(--yellow); margin-top: 14px; padding: 14px; }
 .suggestion-panel h4 { font-size: 17px; margin-bottom: 7px; }
 .login-shell { align-items: center; background: var(--cyan); display: grid; grid-template-columns: minmax(280px, 430px) minmax(320px, 520px); justify-content: center; min-height: 100vh; padding: 30px; }
@@ -358,6 +393,14 @@ audio { max-width: 100%; width: 100%; }
   .admin-sidebar-bottom { display: none; }
   .admin-main { padding: 22px 16px 55px; }
   .admin-page-header, .section-heading { align-items: start; display: grid; }
+  .episode-workspace-heading { align-items: start; }
+  .episode-workspace-heading h1 { font-size: 27px; }
+  .episode-tabs { margin-left: -16px; margin-right: -16px; padding-left: 12px; }
+  .episode-detail-grid { grid-template-columns: 1fr; }
+  .detail-item.wide { grid-column: auto; }
+  .transcript-heading { align-items: start; display: grid; }
+  .script-block { grid-template-columns: 1fr; }
+  .danger-button { margin-left: 0; }
   .form-grid, .mapping-row, .sample-row { grid-template-columns: 1fr; }
   .inline-form { display: grid; }
   .summary-grid { grid-template-columns: 1fr 1fr; }
