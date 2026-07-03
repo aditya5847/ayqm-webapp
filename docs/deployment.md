@@ -84,44 +84,61 @@ The registrar still owns and renews the domain; only DNS resolution moves.
 
 ## 6. Run the historical GPU backfill
 
-Build and publish `Dockerfile.worker`, then start an on-demand Runpod Pod using
-the image. Supply `HF_TOKEN` after accepting the required Pyannote model terms.
-Benchmark a mini, an average episode, and a long multi-speaker episode first.
+Push the worker changes to `main`, then run **Publish transcription worker
+image** from the GitHub Actions tab. The workflow builds `Dockerfile.worker` for
+`linux/amd64` and publishes both `main` and commit-specific `sha-*` tags under:
 
-Create the Pod from a custom template with no exposed ports and configure these
-environment variables (use Runpod secrets for token values):
+```text
+ghcr.io/aditya5847/ayqm-webapp-worker
+```
+
+Open the package settings after its first successful build and make the package
+public. Deploy the immutable `sha-*` tag shown in the workflow output rather
+than `main`. Before creating the Pod, accept the Hugging Face conditions for
+both `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0`, then
+create a read token.
+
+Create two Runpod secrets named `ayqm_worker_token` and `huggingface_token`.
+The first must contain the same token as Railway's `AYQM_WORKER_TOKEN`; the
+second contains the Hugging Face read token. Create a private NVIDIA GPU Pod
+template with no exposed ports and configure these environment variables:
 
 ```dotenv
 AYQM_API_URL=https://api.example.com
-AYQM_WORKER_TOKEN=<same value configured on Railway>
-HF_TOKEN=<Hugging Face read token>
+AYQM_WORKER_TOKEN={{ RUNPOD_SECRET_ayqm_worker_token }}
+HF_TOKEN={{ RUNPOD_SECRET_huggingface_token }}
 HF_HOME=/workspace/huggingface
+AYQM_LOG_LEVEL=INFO
 ```
 
-An RTX 4090 with 24 GB VRAM is a suitable starting point. Allocate at least
-40 GB of container disk. A volume mounted at `/workspace` is optional, but it
-keeps the Hugging Face model cache across Pod stops and avoids downloading the
-models again. It does not need to hold source audio or transcripts because the
-worker downloads each source from R2, uses temporary local storage, and uploads
-the result to R2.
+Use one on-demand RTX 4090 with 24 GB VRAM, at least 40 GB of container disk,
+and a 50 GB volume mounted at `/workspace`. The volume keeps the Hugging Face
+model cache across Pod stops. Source audio and transcripts use temporary local
+storage because the worker transfers them between R2 and the Pod.
 
-The worker image already defines its entrypoint. Set only these command
-arguments in the Runpod template:
+Queue one short episode before deploying the pilot. The worker image already
+defines its entrypoint, so set only these command arguments in the template:
 
 ```sh
---worker-name runpod-pilot \
-  --model large-v3 \
-  --device cuda \
-  --compute-type float16 \
-  --batch-size 16 \
-  --max-jobs 3
+--worker-name runpod-pilot --model large-v3 --device cuda --compute-type float16 --batch-size 16 --once
 ```
 
-Check measured throughput and Runpod spend after the three-episode pilot. Do not
-continue if the projection exceeds the agreed $30 cap. Remove `--max-jobs 3`
-and change the worker name before starting the full backfill. The worker leases one
-episode at a time, renews its lease, uploads the transcript to R2, and asks the
-API process to commit it to DuckDB.
+Confirm the logs show the job being claimed, downloaded, transcribed, uploaded,
+and completed. The admin status must move from `queued` to `running` and then
+`succeeded`. If CUDA runs out of memory, reduce the batch size to 8 and then 4.
+
+For the full backfill, use:
+
+```sh
+--worker-name runpod-backfill --model large-v3 --device cuda --compute-type float16 --batch-size 16 --idle-timeout-seconds 300
+```
+
+The worker leases one episode at a time, renews its lease, obtains a fresh R2
+upload URL after transcription, uploads the transcript, and asks the API to
+commit it to DuckDB. Check measured throughput and spend after the first three
+episodes; stop if the projection exceeds the agreed $30 cap. When the queue is
+empty, stop the Pod to release the GPU even if the worker process has exited.
+Terminate the Pod after the backfill to delete its billable volume.
 
 ## 7. Review and extract trivia
 

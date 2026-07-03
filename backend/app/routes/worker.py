@@ -21,6 +21,8 @@ from ..schemas import (
     WorkerHeartbeat,
     WorkerJobClaim,
     WorkerJobLease,
+    WorkerTranscriptUpload,
+    WorkerUploadRequest,
 )
 from ..storage import get_object_storage
 
@@ -55,24 +57,44 @@ def claim_job(request: WorkerJobClaim, authorization: str | None = Header(defaul
         raise HTTPException(status_code=409, detail="Claimed episode has no object-stored audio")
     storage = get_object_storage(settings)
     audio_url = storage.presign_get(episode["audio_object_key"], expires_seconds=settings.worker_lease_seconds)
-    transcript_key = f"artifacts/{episode['id']}/transcript.json"
-    transcript_url = storage.presign_put(
-        transcript_key,
-        "application/json",
-        expires_seconds=settings.worker_lease_seconds,
-    )
-    if not audio_url or not transcript_url:
-        raise HTTPException(status_code=500, detail="Could not issue worker object URLs")
+    if not audio_url:
+        raise HTTPException(status_code=500, detail="Could not issue worker audio URL")
     payload = job.get("payload") or {}
     return {
         "job": job,
         "lease_token": lease_token,
         "audio_url": audio_url,
         "audio_content_type": episode.get("audio_content_type"),
+        "transcription": TranscriptionRequest.model_validate(payload),
+    }
+
+
+@router.post("/jobs/{job_id}/transcript-upload", response_model=WorkerTranscriptUpload)
+def create_transcript_upload(
+    job_id: str,
+    request: WorkerUploadRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    require_worker(authorization)
+    settings = get_settings()
+    with get_connection() as conn:
+        job = get_job(conn, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not worker_lease_matches(conn, job_id, request.lease_token):
+            raise HTTPException(status_code=409, detail="Worker lease is no longer valid")
+    transcript_key = f"artifacts/{job['episode_id']}/transcript.json"
+    transcript_url = get_object_storage(settings).presign_put(
+        transcript_key,
+        "application/json",
+        expires_seconds=settings.worker_lease_seconds,
+    )
+    if not transcript_url:
+        raise HTTPException(status_code=500, detail="Could not issue worker transcript upload URL")
+    return {
         "transcript_object_key": transcript_key,
         "transcript_upload_url": transcript_url,
         "transcript_upload_headers": {"Content-Type": "application/json"},
-        "transcription": TranscriptionRequest.model_validate(payload),
     }
 
 

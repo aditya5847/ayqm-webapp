@@ -33,6 +33,10 @@ known episode speakers.
 - When `AYQM_EXTERNAL_TRANSCRIPTION_WORKER=true`, transcription remains queued
   until a bearer-authenticated worker claims it. Leases expire and can be
   reclaimed; workers never access DuckDB.
+- The claim response contains a short-lived audio download URL. After
+  transcription, the worker uses its active lease token to request a fresh R2
+  upload URL from `POST /worker/jobs/{job_id}/transcript-upload`; do not issue
+  the transcript upload URL at claim time.
 - Background workers update job status to `running`, `succeeded`, or `failed`.
 - Trivia extraction requires a completed diarized transcript and full speaker
   mapping.

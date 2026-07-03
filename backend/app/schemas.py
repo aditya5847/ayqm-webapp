@@ -246,10 +246,17 @@ class WorkerJobLease(BaseModel):
     lease_token: str
     audio_url: str
     audio_content_type: str | None = None
+    transcription: TranscriptionRequest
+
+
+class WorkerUploadRequest(BaseModel):
+    lease_token: str
+
+
+class WorkerTranscriptUpload(BaseModel):
     transcript_object_key: str
     transcript_upload_url: str
     transcript_upload_headers: dict[str, str]
-    transcription: TranscriptionRequest
 
 
 class WorkerHeartbeat(BaseModel):

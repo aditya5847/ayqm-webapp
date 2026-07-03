@@ -86,11 +86,17 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
             if not transcript_path.exists():
                 transcript_path.write_text(json.dumps(transcript, ensure_ascii=False), encoding="utf-8")
             payload = transcript_path.read_bytes()
+            upload_lease = api_request(
+                api_url,
+                token,
+                f"/worker/jobs/{job['id']}/transcript-upload",
+                {"lease_token": lease["lease_token"]},
+            )
             upload = Request(
-                lease["transcript_upload_url"],
+                upload_lease["transcript_upload_url"],
                 data=payload,
                 method="PUT",
-                headers=lease["transcript_upload_headers"],
+                headers=upload_lease["transcript_upload_headers"],
             )
             with urlopen(upload, timeout=300):
                 pass
@@ -101,7 +107,7 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
                 f"/worker/jobs/{job['id']}/complete",
                 {
                     "lease_token": lease["lease_token"],
-                    "transcript_object_key": lease["transcript_object_key"],
+                    "transcript_object_key": upload_lease["transcript_object_key"],
                     "transcript_sha256": hashlib.sha256(payload).hexdigest(),
                 },
             )
@@ -136,6 +142,7 @@ def main() -> None:
     parser.add_argument("--hf-token", default=os.getenv("HF_TOKEN"))
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--max-jobs", type=int)
+    parser.add_argument("--idle-timeout-seconds", type=int)
     parser.add_argument("--poll-seconds", type=int, default=30)
     args = parser.parse_args()
     if not args.api_url:
@@ -144,8 +151,13 @@ def main() -> None:
         parser.error("--token or AYQM_WORKER_TOKEN is required")
     if args.max_jobs is not None and args.max_jobs < 1:
         parser.error("--max-jobs must be at least 1")
+    if args.idle_timeout_seconds is not None and args.idle_timeout_seconds < 1:
+        parser.error("--idle-timeout-seconds must be at least 1")
+    if args.poll_seconds < 1:
+        parser.error("--poll-seconds must be at least 1")
 
     completed_jobs = 0
+    idle_started_at = time.monotonic()
     logger.info("Worker %s is polling %s", args.worker_name, args.api_url)
     while True:
         lease = api_request(
@@ -157,10 +169,15 @@ def main() -> None:
         if lease is None:
             if args.once:
                 return
+            idle_seconds = time.monotonic() - idle_started_at
+            if args.idle_timeout_seconds is not None and idle_seconds >= args.idle_timeout_seconds:
+                logger.info("Worker stopping after %s idle seconds", round(idle_seconds))
+                return
             logger.info("No transcription jobs available; polling again in %s seconds", args.poll_seconds)
             time.sleep(args.poll_seconds)
             continue
         process_lease(args.api_url, args.token, lease, args)
+        idle_started_at = time.monotonic()
         completed_jobs += 1
         if args.once or (args.max_jobs is not None and completed_jobs >= args.max_jobs):
             logger.info("Worker stopping after %s completed job(s)", completed_jobs)

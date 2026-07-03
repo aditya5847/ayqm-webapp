@@ -35,7 +35,9 @@ root-level `frontend/` folder.
 - Production audio and artifacts use private Cloudflare R2 object keys. Local
   development retains filesystem storage.
 - External transcription workers claim leased jobs through `/worker/jobs/*`,
-  use presigned R2 URLs, and submit artifact references back to the API.
+  use presigned R2 URLs, and submit artifact references back to the API. The
+  transcript upload URL is issued only after transcription so it cannot expire
+  during a long-running job.
 - RSS imports are keyed by GUID and support main, mini, and unnumbered
   announcement items. The clean production database must not be seeded from the
   local DuckDB file.
@@ -67,6 +69,8 @@ root-level `frontend/` folder.
   `speaker_ids`, and optional JSON-string `extra_metadata`.
 - Speaker CRUD is exposed under `/speakers`.
 - Background job status is read from `GET /jobs/{job_id}`.
+- External workers request a fresh transcript upload ticket from
+  `POST /worker/jobs/{job_id}/transcript-upload` using their active lease token.
 - Trivia extraction requires a completed diarized transcript, full speaker-label
   mapping, and a Gemini/Google API key in the webapp process environment.
 - Diarization also requires `HF_TOKEN`, accepted Pyannote model terms, and a
