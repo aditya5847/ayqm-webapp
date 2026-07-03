@@ -1,6 +1,8 @@
 import argparse
 import hashlib
 import json
+import logging
+import os
 import shutil
 import threading
 import time
@@ -12,6 +14,8 @@ from urllib.request import Request, urlopen
 from .config import get_settings
 from .schemas import TranscriptionRequest
 from .services.transcription import run_transcription
+
+logger = logging.getLogger("ayqm.worker")
 
 
 def api_request(api_url: str, token: str, path: str, payload: dict | None = None, method: str = "POST"):
@@ -33,16 +37,20 @@ def api_request(api_url: str, token: str, path: str, payload: dict | None = None
 
 def heartbeat_loop(api_url: str, token: str, job_id: str, lease_token: str, stop: threading.Event) -> None:
     while not stop.wait(60):
-        api_request(
-            api_url,
-            token,
-            f"/worker/jobs/{job_id}/heartbeat",
-            {"lease_token": lease_token, "progress": {"stage": "transcribing"}},
-        )
+        try:
+            api_request(
+                api_url,
+                token,
+                f"/worker/jobs/{job_id}/heartbeat",
+                {"lease_token": lease_token, "progress": {"stage": "transcribing"}},
+            )
+        except Exception:
+            logger.exception("Heartbeat failed for job %s", job_id)
 
 
 def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespace) -> None:
     job = lease["job"]
+    logger.info("Claimed job %s for episode %s", job["id"], job["episode_id"])
     stop = threading.Event()
     heartbeat = threading.Thread(
         target=heartbeat_loop,
@@ -54,6 +62,7 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
         with TemporaryDirectory(prefix=f"ayqm-worker-{job['episode_id']}-") as temporary:
             root = Path(temporary)
             audio_path = root / "source.mp3"
+            logger.info("Downloading audio for job %s", job["id"])
             with urlopen(lease["audio_url"], timeout=300) as response, audio_path.open("wb") as output:
                 shutil.copyfileobj(response, output)
             transcription = TranscriptionRequest.model_validate(lease["transcription"])
@@ -65,6 +74,13 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
                     "batch_size": args.batch_size,
                     "hf_token": args.hf_token or transcription.hf_token,
                 }
+            )
+            logger.info(
+                "Starting transcription for job %s with model=%s device=%s compute_type=%s",
+                job["id"],
+                transcription.model_name,
+                transcription.device,
+                transcription.compute_type,
             )
             transcript, transcript_path = run_transcription(audio_path, root, transcription, get_settings())
             if not transcript_path.exists():
@@ -78,6 +94,7 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
             )
             with urlopen(upload, timeout=300):
                 pass
+            logger.info("Uploaded transcript for job %s", job["id"])
             api_request(
                 api_url,
                 token,
@@ -88,7 +105,9 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
                     "transcript_sha256": hashlib.sha256(payload).hexdigest(),
                 },
             )
+            logger.info("Completed job %s", job["id"])
     except Exception as exc:
+        logger.exception("Job %s failed", job["id"])
         api_request(
             api_url,
             token,
@@ -102,19 +121,32 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=os.getenv("AYQM_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     parser = argparse.ArgumentParser(description="Process AYQM transcription jobs from a trusted machine.")
-    parser.add_argument("--api-url", required=True)
-    parser.add_argument("--token", required=True)
+    parser.add_argument("--api-url", default=os.getenv("AYQM_API_URL"))
+    parser.add_argument("--token", default=os.getenv("AYQM_WORKER_TOKEN"))
     parser.add_argument("--worker-name", default="ayqm-local-worker")
     parser.add_argument("--model", default="large-v3")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--compute-type", default="int8")
     parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--hf-token")
+    parser.add_argument("--hf-token", default=os.getenv("HF_TOKEN"))
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--max-jobs", type=int)
     parser.add_argument("--poll-seconds", type=int, default=30)
     args = parser.parse_args()
+    if not args.api_url:
+        parser.error("--api-url or AYQM_API_URL is required")
+    if not args.token:
+        parser.error("--token or AYQM_WORKER_TOKEN is required")
+    if args.max_jobs is not None and args.max_jobs < 1:
+        parser.error("--max-jobs must be at least 1")
 
+    completed_jobs = 0
+    logger.info("Worker %s is polling %s", args.worker_name, args.api_url)
     while True:
         lease = api_request(
             args.api_url,
@@ -125,10 +157,13 @@ def main() -> None:
         if lease is None:
             if args.once:
                 return
+            logger.info("No transcription jobs available; polling again in %s seconds", args.poll_seconds)
             time.sleep(args.poll_seconds)
             continue
         process_lease(args.api_url, args.token, lease, args)
-        if args.once:
+        completed_jobs += 1
+        if args.once or (args.max_jobs is not None and completed_jobs >= args.max_jobs):
+            logger.info("Worker stopping after %s completed job(s)", completed_jobs)
             return
 
 

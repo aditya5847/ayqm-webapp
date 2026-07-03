@@ -88,20 +88,38 @@ Build and publish `Dockerfile.worker`, then start an on-demand Runpod Pod using
 the image. Supply `HF_TOKEN` after accepting the required Pyannote model terms.
 Benchmark a mini, an average episode, and a long multi-speaker episode first.
 
+Create the Pod from a custom template with no exposed ports and configure these
+environment variables (use Runpod secrets for token values):
+
+```dotenv
+AYQM_API_URL=https://api.example.com
+AYQM_WORKER_TOKEN=<same value configured on Railway>
+HF_TOKEN=<Hugging Face read token>
+HF_HOME=/workspace/huggingface
+```
+
+An RTX 4090 with 24 GB VRAM is a suitable starting point. Allocate at least
+40 GB of container disk. A volume mounted at `/workspace` is optional, but it
+keeps the Hugging Face model cache across Pod stops and avoids downloading the
+models again. It does not need to hold source audio or transcripts because the
+worker downloads each source from R2, uses temporary local storage, and uploads
+the result to R2.
+
+The worker image already defines its entrypoint. Set only these command
+arguments in the Runpod template:
+
 ```sh
-ayqm-worker \
-  --api-url https://api.example.com \
-  --token "$AYQM_WORKER_TOKEN" \
-  --worker-name runpod-backfill \
+--worker-name runpod-pilot \
   --model large-v3 \
   --device cuda \
   --compute-type float16 \
   --batch-size 16 \
-  --hf-token "$HF_TOKEN"
+  --max-jobs 3
 ```
 
 Check measured throughput and Runpod spend after the three-episode pilot. Do not
-continue if the projection exceeds the agreed $30 cap. The worker leases one
+continue if the projection exceeds the agreed $30 cap. Remove `--max-jobs 3`
+and change the worker name before starting the full backfill. The worker leases one
 episode at a time, renews its lease, uploads the transcript to R2, and asks the
 API process to commit it to DuckDB.
 
