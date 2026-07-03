@@ -140,6 +140,9 @@ episodes; stop if the projection exceeds the agreed $30 cap. When the queue is
 empty, stop the Pod to release the GPU even if the worker process has exited.
 Terminate the Pod after the backfill to delete its billable volume.
 
+The worker sends an explicit `AYQM-Worker/1.0` User-Agent so Cloudflare Browser
+Integrity Check does not reject its authenticated API requests with error 1010.
+
 ## 7. Review and extract trivia
 
 1. Work chronologically in the admin episode list.

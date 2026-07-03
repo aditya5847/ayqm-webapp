@@ -24,7 +24,12 @@ def api_request(api_url: str, token: str, path: str, payload: dict | None = None
         f"{api_url.rstrip('/')}{path}",
         data=body,
         method=method,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "AYQM-Worker/1.0 (+https://areyouquizzingme.com)",
+        },
     )
     try:
         with urlopen(request, timeout=60) as response:

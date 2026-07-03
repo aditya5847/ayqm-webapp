@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import BytesIO
 
 from backend.app.db import get_connection
 from backend.app.repositories import create_job, create_rss_episode, get_or_create_speaker_by_name, now_utc
@@ -14,6 +15,39 @@ class FakeWorkerStorage:
     def presign_put(self, key: str, content_type: str, expires_seconds: int = 3600) -> str:
         self.put_requests.append((key, content_type, expires_seconds))
         return f"https://objects.example/{key}?upload=1"
+
+
+class FakeApiResponse:
+    def __init__(self, payload: bytes):
+        self.payload = BytesIO(payload)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def read(self):
+        return self.payload.read()
+
+
+def test_worker_api_request_identifies_client(monkeypatch):
+    from backend.app import worker_cli
+
+    requests = []
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeApiResponse(b"null")
+
+    monkeypatch.setattr(worker_cli, "urlopen", fake_urlopen)
+
+    worker_cli.api_request("https://api.example.com", "secret", "/worker/jobs/claim", {})
+
+    request, timeout = requests[0]
+    assert request.get_header("User-agent") == "AYQM-Worker/1.0 (+https://areyouquizzingme.com)"
+    assert request.get_header("Accept") == "application/json"
+    assert timeout == 60
 
 
 def test_worker_requests_transcript_upload_after_transcription(client, monkeypatch):
