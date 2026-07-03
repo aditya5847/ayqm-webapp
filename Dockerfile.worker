@@ -14,10 +14,10 @@ RUN apt-get update \
     && uv python install 3.12
 
 WORKDIR /app
-COPY requirements-production.txt ./
+COPY requirements-production.txt requirements-worker.txt ./
 RUN uv venv /app/.venv --python 3.12 \
-    && uv pip install --python /app/.venv/bin/python -r requirements-production.txt
+    && uv pip install --python /app/.venv/bin/python -r requirements-worker.txt
 
 COPY backend ./backend
 
-ENTRYPOINT ["ayqm-worker"]
+ENTRYPOINT ["python", "-m", "backend.app.worker_cli"]

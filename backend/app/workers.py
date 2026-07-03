@@ -15,8 +15,13 @@ from .repositories import (
     update_job_status,
 )
 from .schemas import ProcessRequest, TranscriptionRequest, TriviaExtractionRequest
-from .services.transcription import run_transcription
 from .services.trivia import run_trivia_extraction
+
+
+def run_transcription(*args, **kwargs):
+    from .services.transcription import run_transcription as implementation
+
+    return implementation(*args, **kwargs)
 
 
 def _with_episode_speaker_count(

@@ -2,7 +2,7 @@ import json
 import time
 from pathlib import Path
 
-from ayqm_transcribe.extractor import (
+from .trivia_extractor import (
     DEFAULT_MAX_OUTPUT_TOKENS,
     create_client,
     extract_trivia,
