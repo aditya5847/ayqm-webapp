@@ -8,5 +8,4 @@ pydantic-settings>=2.12.0
 python-multipart>=0.0.20
 torch==2.8.0
 uvicorn[standard]>=0.38.0
-whisperx @ git+https://github.com/m-bain/whisperx.git@5f2f9d4320dd93a7d12f5ba2495eef7e0a5af963
 ayqm-transcribe @ git+https://github.com/aditya5847/ayqm-transcribe.git@dec254288e608a3c4315bdfce65876137170ad01

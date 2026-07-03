@@ -19,4 +19,4 @@ RUN uv venv /app/.venv && uv pip install --python /app/.venv/bin/python -r requi
 COPY backend ./backend
 
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --proxy-headers --forwarded-allow-ips '*' "]
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
