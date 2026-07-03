@@ -24,6 +24,15 @@ describe("public experience", () => {
     expect(screen.getByText("Coming soon")).toBeInTheDocument();
   });
 
+  it("reports an API configuration error when the SPA fallback returns HTML", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>frontend</html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    })));
+    renderApp("/episodes");
+    expect(await screen.findByText(/Set VITE_API_BASE_URL/)).toBeInTheDocument();
+  });
+
   it("renders the static about page and guest host roll without an API", () => {
     renderApp("/about");
     expect(screen.getByRole("heading", { name: "Meet the hosts" })).toBeInTheDocument();

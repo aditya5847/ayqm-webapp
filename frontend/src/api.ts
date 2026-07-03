@@ -268,7 +268,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+  if (!contentType.includes("application/json")) {
+    const payload = await response.text();
+    if (!response.ok) {
+      throw new ApiError(response.status, payload);
+    }
+    throw new ApiError(
+      502,
+      "The API returned a web page instead of JSON. Set VITE_API_BASE_URL to the Railway API domain in Cloudflare Pages and redeploy."
+    );
+  }
+  const payload = await response.json();
 
   if (!response.ok) {
     throw new ApiError(response.status, payload);
