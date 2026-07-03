@@ -1,5 +1,9 @@
 import tarfile
+import os
+import subprocess
+import sys
 from datetime import timedelta
+from pathlib import Path
 
 import duckdb
 
@@ -133,3 +137,37 @@ def test_portable_backup_is_written_to_local_object_storage(tmp_path, monkeypatc
     finally:
         restored.close()
     get_settings.cache_clear()
+
+
+def test_api_starts_without_transcription_dependencies(tmp_path):
+    script = """
+import importlib.abc
+import sys
+
+class BlockMlImports(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == 'ayqm_transcribe' or fullname.startswith(('ayqm_transcribe.', 'whisperx', 'torch')):
+            raise ImportError(f'blocked API-only dependency: {fullname}')
+        return None
+
+sys.meta_path.insert(0, BlockMlImports())
+from backend.app.main import create_app
+assert create_app().title == 'AYQM Webapp API'
+"""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "AYQM_ENVIRONMENT": "local",
+            "AYQM_DATABASE_PATH": str(tmp_path / "api-only.duckdb"),
+            "AYQM_UPLOAD_ROOT": str(tmp_path / "uploads"),
+            "AYQM_EPISODE_ROOT": str(tmp_path / "episodes"),
+        }
+    )
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[1],
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )

@@ -1,10 +1,9 @@
 import json
 from typing import Any
 
-from ayqm_transcribe.extractor import create_client
-
 from ..config import Settings
 from ..schemas import TriviaRephraseOut
+from .trivia_extractor import create_client
 
 
 class RephraseConfigurationError(RuntimeError):
