@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, Youtube, X } from "lucide-react";
-import { Link, NavLink, Outlet, useParams } from "react-router-dom";
-import { getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodes, listPublicTrivia } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import DOMPurify from "dompurify";
+import { ArrowLeft, ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Youtube, X } from "lucide-react";
+import { Link, NavLink, Outlet, useParams, useSearchParams } from "react-router-dom";
+import { getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicTrivia, listRandomPublicTrivia } from "./api";
 import type { PublicEpisode, TriviaItem } from "./types";
 import { formatDate, triviaAskerName } from "./workflow";
-import { QueryState } from "./ui";
+import { Notice, QueryState } from "./ui";
 import logoUrl from "../references/Logo.png";
 import thumbnailUrl from "../references/Podcast Thumbnail.jpg";
 
@@ -21,17 +22,17 @@ export function PublicLayout() {
           {menuOpen ? <X /> : <Menu />}
         </button>
         <nav className={`public-nav${menuOpen ? " open" : ""}`} aria-label="Main navigation" onClick={() => setMenuOpen(false)}>
+          <NavLink to="/" end>Home</NavLink>
           <NavLink to="/episodes">Episodes</NavLink>
           <NavLink to="/trivia">Trivia</NavLink>
           <NavLink to="/about">About us</NavLink>
-          <NavLink className="admin-link" to="/admin">Admin</NavLink>
         </nav>
       </header>
       <main><Outlet /></main>
       <footer className="public-footer">
         <img src={logoUrl} alt="" />
         <p>Questions worth asking. Answers worth remembering.</p>
-        <div className="footer-links"><Link to="/about">About us</Link><Link to="/admin">Podcast admin</Link></div>
+        <div className="footer-links"><Link to="/about">About us</Link></div>
       </footer>
     </div>
   );
@@ -53,7 +54,7 @@ export function HomePage() {
             <>
               <p className="episode-label">Latest: {episodeLabel(latest)}</p>
               <h2>{latest.episode_title}</h2>
-              <p>{latest.episode_description}</p>
+              <EpisodeDescription value={latest.episode_description} compact />
               <div className="hero-actions">
                 <Link className="button primary" to={`/episodes/${latest.id}`}>Explore episode <ArrowRight size={18} /></Link>
                 {latest.source_url && <a className="button light" href={latest.source_url} target="_blank" rel="noreferrer">Listen <ExternalLink size={17} /></a>}
@@ -80,11 +81,23 @@ export function HomePage() {
 }
 
 export function PublicEpisodesPage() {
-  const episodes = useQuery({ queryKey: ["public", "episodes"], queryFn: listPublicEpisodes });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pageParam = searchParams.get("page");
+  const requestedPage = positivePage(pageParam);
+  const episodes = useQuery({
+    queryKey: ["public", "episodes", "archive", requestedPage],
+    queryFn: () => listPublicEpisodePage(requestedPage),
+    placeholderData: keepPreviousData
+  });
+  useEffect(() => {
+    if (!episodes.isPlaceholderData && episodes.data && (episodes.data.page !== requestedPage || (episodes.data.page === 1 && pageParam !== null))) {
+      setSearchParams(episodes.data.page > 1 ? { page: String(episodes.data.page) } : {}, { replace: true });
+    }
+  }, [episodes.data, episodes.isPlaceholderData, pageParam, requestedPage, setSearchParams]);
   return (
     <PublicPageHeader eyebrow="Listen and explore" title="Episodes" intro="Every conversation, every question, and the trivia that came out of it.">
       <QueryState query={episodes} feature="The episode archive" empty="No episodes are available yet.">
-        {(items) => <div className="episode-archive">{items.map((episode) => <EpisodeRow key={episode.id} episode={episode} />)}</div>}
+        {(result) => result.items.length ? <><div className="episode-archive">{result.items.map((episode) => <EpisodeRow key={episode.id} episode={episode} />)}</div><EpisodePagination page={result.page} totalPages={result.total_pages} setSearchParams={setSearchParams} /></> : <Notice>No episodes are available yet.</Notice>}
       </QueryState>
     </PublicPageHeader>
   );
@@ -101,7 +114,7 @@ export function PublicEpisodePage() {
           <>
             <header className="episode-masthead">
               <img src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
-              <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><p>{item.episode_description}</p><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
+              <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><EpisodeDescription value={item.episode_description} /><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
             </header>
             <section className="editorial-section"><div className="section-title-row"><div><p className="eyebrow">Play along</p><h2>Trivia from this episode</h2></div></div><QueryState query={trivia} feature="Episode trivia" empty="No trivia is available for this episode.">{(items) => <TriviaGrid items={items} />}</QueryState></section>
           </>
@@ -112,10 +125,20 @@ export function PublicEpisodePage() {
 }
 
 export function PublicTriviaPage() {
-  const trivia = useQuery({ queryKey: ["public", "trivia", 24], queryFn: () => listPublicTrivia(24) });
+  const [round, setRound] = useState(0);
+  const [excludeIds, setExcludeIds] = useState<string[]>([]);
+  const trivia = useQuery({
+    queryKey: ["public", "trivia", "random", round],
+    queryFn: () => listRandomPublicTrivia(4, excludeIds),
+    placeholderData: keepPreviousData
+  });
+  const refresh = () => {
+    setExcludeIds(trivia.data?.map(item => item.id) ?? []);
+    setRound(value => value + 1);
+  };
   return (
-    <PublicPageHeader eyebrow="Question bank" title="Trivia" intro="Questions pulled from conversations on Are You Quizzing Me. Make your guess, then reveal the answer.">
-      <QueryState query={trivia} feature="The public trivia collection" empty="No trivia is available yet.">{(items) => <TriviaGrid items={items} />}</QueryState>
+    <PublicPageHeader eyebrow="Question bank" title="Trivia" intro="Four questions, pulled at random, from the podcast. Make your guess, then reveal the answer.">
+      <QueryState query={trivia} feature="The public trivia collection" empty="No trivia is available yet.">{(items) => <><TriviaGrid key={round} items={items} /><div className="trivia-refresh"><button className="button light" type="button" onClick={refresh} disabled={trivia.isFetching}><RefreshCw className={trivia.isFetching ? "spin" : undefined} size={17} />Deal four new cards</button></div></>}</QueryState>
     </PublicPageHeader>
   );
 }
@@ -129,6 +152,8 @@ const guestHosts = [
   "Aishwarya Raman",
   "Berty Ashley"
 ];
+
+const hostPortraitModules = import.meta.glob("../references/hosts/*", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
 
 export function AboutPage() {
   return (
@@ -156,16 +181,12 @@ export function AboutPage() {
           <div className="section-title-row"><div><p className="eyebrow">Behind the questions</p><h2>Meet the hosts</h2></div></div>
           <div className="host-grid">
             <article className="host-profile vineeth">
-              <div className="host-initials" aria-hidden="true">VN</div>
-              <p className="eyebrow">Co-founder and host</p>
-              <h3>Vineeth Nair</h3>
+              <div className="host-profile-header"><HostPortrait host="vineeth" name="Vineeth Nair" initials="VN" /><div><p className="eyebrow">Co-founder and host</p><h3>Vineeth Nair</h3></div></div>
               <p>Vineeth is a quizmaster, podcast co-founder and the voice behind more than 140 AYQM appearances. His public professional record also spans pathology and medical diagnostics, giving him a life outside the podcast that is every bit as detail-oriented.</p>
               <p>Alongside the main show, Vineeth has presented bonus mini episodes that dig into overlooked moments from Indian history. His interests on AYQM range across history, science, culture and the connections hiding between them.</p>
             </article>
             <article className="host-profile aditya">
-              <div className="host-initials" aria-hidden="true">AK</div>
-              <p className="eyebrow">Co-founder and host</p>
-              <h3>Aditya Kashyap</h3>
+              <div className="host-profile-header"><HostPortrait host="aditya" name="Aditya Kashyap" initials="AK" /><div><p className="eyebrow">Co-founder and host</p><h3>Aditya Kashyap</h3></div></div>
               <p>Aditya is a quizmaster, seasoned host, actor and improv performer. He regularly conducts quizzes in Mumbai, has performed at comedy festivals across Asia, and has worked as an emcee for corporate events and educational institutions.</p>
               <p>He also teaches public speaking as a visiting faculty member and guest lecturer. On AYQM, that mix of quizzing, performance, improvisation and curiosity helps turn a collection of facts into a conversation.</p>
             </article>
@@ -215,11 +236,54 @@ function EpisodeStrip({ episodes }: { episodes: PublicEpisode[] }) {
 }
 
 function EpisodeTile({ episode }: { episode: PublicEpisode }) {
-  return <article className="episode-tile"><Link to={`/episodes/${episode.id}`}><img src={thumbnailUrl} alt="" /><span>{episodeLabel(episode)}</span><h3>{episode.episode_title}</h3><p className="clamp">{episode.episode_description}</p></Link></article>;
+  return <article className="episode-tile"><Link to={`/episodes/${episode.id}`}><img src={thumbnailUrl} alt="" /><span>{episodeLabel(episode)}</span><h3>{episode.episode_title}</h3><EpisodeDescription value={episode.episode_description} compact className="clamp" /></Link></article>;
 }
 
 function EpisodeRow({ episode }: { episode: PublicEpisode }) {
-  return <article className="episode-row"><img src={thumbnailUrl} alt="" /><div><p className="eyebrow">{episodeLabel(episode)} · {formatDate(episode.published_at)}</p><h2><Link to={`/episodes/${episode.id}`}>{episode.episode_title}</Link></h2><p>{episode.episode_description}</p><span>{episode.trivia_count} trivia questions</span></div><Link className="icon-link" to={`/episodes/${episode.id}`} aria-label={`Open ${episode.episode_title}`}><ArrowRight /></Link></article>;
+  return <article className="episode-row"><img src={thumbnailUrl} alt="" /><div><p className="eyebrow">{episodeLabel(episode)} · {formatDate(episode.published_at)}</p><h2><Link to={`/episodes/${episode.id}`}>{episode.episode_title}</Link></h2><EpisodeDescription value={episode.episode_description} compact /><span>{episode.trivia_count} trivia questions</span></div><Link className="icon-link" to={`/episodes/${episode.id}`} aria-label={`Open ${episode.episode_title}`}><ArrowRight /></Link></article>;
+}
+
+function EpisodeDescription({ value, compact = false, className = "" }: { value: string | null; compact?: boolean; className?: string }) {
+  if (!value) return null;
+  const html = compact
+    ? DOMPurify.sanitize(value, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
+    : DOMPurify.sanitize(value, {
+      ALLOWED_TAGS: ["p", "br", "strong", "b", "em", "i", "ul", "ol", "li", "a", "blockquote"],
+      ALLOWED_ATTR: ["href", "title"],
+      ALLOW_DATA_ATTR: false
+    });
+  const classes = ["episode-description", compact ? "compact" : "rich", className].filter(Boolean).join(" ");
+  const Element = compact ? "p" : "div";
+  return <Element className={classes} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function HostPortrait({ host, name, initials }: { host: string; name: string; initials: string }) {
+  const portrait = Object.entries(hostPortraitModules).find(([path]) => path.toLowerCase().includes(host))?.[1];
+  return portrait
+    ? <img className="host-portrait" src={portrait} alt={name} />
+    : <div className="host-initials" aria-hidden="true">{initials}</div>;
+}
+
+function positivePage(value: string | null): number {
+  const page = Number(value);
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+function EpisodePagination({ page, totalPages, setSearchParams }: { page: number; totalPages: number; setSearchParams: ReturnType<typeof useSearchParams>[1] }) {
+  if (totalPages <= 1) return null;
+  const pages = paginationPages(page, totalPages);
+  const goToPage = (nextPage: number) => setSearchParams(nextPage > 1 ? { page: String(nextPage) } : {});
+  return <nav className="pagination" aria-label="Episode pages">
+    <button type="button" onClick={() => goToPage(page - 1)} disabled={page === 1}><ArrowLeft size={16} />Previous</button>
+    <div className="pagination-pages">{pages.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} aria-hidden="true">…</span> : <button key={item} type="button" aria-current={item === page ? "page" : undefined} onClick={() => goToPage(item)}>{item}</button>)}</div>
+    <button type="button" onClick={() => goToPage(page + 1)} disabled={page === totalPages}>Next<ArrowRight size={16} /></button>
+  </nav>;
+}
+
+function paginationPages(page: number, totalPages: number): Array<number | "ellipsis"> {
+  const visible = new Set([1, totalPages, page - 1, page, page + 1].filter(item => item >= 1 && item <= totalPages));
+  const ordered = [...visible].sort((a, b) => a - b);
+  return ordered.flatMap((item, index) => index > 0 && item - ordered[index - 1] > 1 ? ["ellipsis", item] : [item]);
 }
 
 function episodeLabel(episode: PublicEpisode): string {
@@ -229,17 +293,39 @@ function episodeLabel(episode: PublicEpisode): string {
 }
 
 export function TriviaGrid({ items }: { items: TriviaItem[] }) {
-  return <div className="public-trivia-grid">{items.map((item, index) => <PublicTriviaCard key={item.id} item={item} number={index + 1} />)}</div>;
+  return <div className="public-trivia-grid">{items.map((item) => <PublicTriviaCard key={item.id} item={item} />)}</div>;
 }
 
-export function PublicTriviaCard({ item, number }: { item: TriviaItem; number: number }) {
+export function PublicTriviaCard({ item }: { item: TriviaItem }) {
   const [revealed, setRevealed] = useState(false);
+  const initialRender = useRef(true);
+  const revealButton = useRef<HTMLButtonElement>(null);
+  const questionButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (initialRender.current) {
+      initialRender.current = false;
+      return;
+    }
+    (revealed ? questionButton : revealButton).current?.focus();
+  }, [revealed]);
+
   return (
-    <article className="public-trivia-card">
-      <div className="question-number">Q{number.toString().padStart(2, "0")}</div>
-      <p className="asked-by">Asked by {triviaAskerName(item)}</p>
-      <h3>{item.question ?? "Untitled question"}</h3>
-      {revealed ? <div className="answer"><span>Answer</span><p>{item.answer ?? "No answer provided."}</p></div> : <button className="reveal-button" type="button" onClick={() => setRevealed(true)}>Reveal answer</button>}
+    <article className={`public-trivia-card${revealed ? " revealed" : ""}`}>
+      <div className="flashcard-inner">
+        <div className="flashcard-face flashcard-front" aria-hidden={revealed}>
+          <p className={`asked-by${item.asker ? "" : " empty"}`} aria-hidden={item.asker ? undefined : true}>
+            {item.asker ? `Asked by ${triviaAskerName(item)}` : "\u00a0"}
+          </p>
+          <h3>{item.question ?? "Untitled question"}</h3>
+          <button ref={revealButton} className="reveal-button" type="button" tabIndex={revealed ? -1 : 0} onClick={() => setRevealed(true)}>Reveal answer</button>
+        </div>
+        <div className="flashcard-face flashcard-back" aria-hidden={!revealed}>
+          <div className="flashcard-question"><h3>{item.question ?? "Untitled question"}</h3></div>
+          <div className="answer"><p>{item.answer ?? "No answer provided."}</p></div>
+          <button ref={questionButton} className="show-question-button" type="button" tabIndex={revealed ? 0 : -1} onClick={() => setRevealed(false)}>Show question</button>
+        </div>
+      </div>
     </article>
   );
 }

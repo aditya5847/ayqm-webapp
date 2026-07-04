@@ -45,6 +45,14 @@ export interface PublicEpisode {
   trivia_count: number;
 }
 
+export interface PublicEpisodePage {
+  items: PublicEpisode[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
 export interface AdminSession {
   authenticated: boolean;
 }

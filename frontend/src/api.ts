@@ -8,6 +8,7 @@ import type {
   Job,
   JobAccepted,
   PublicEpisode,
+  PublicEpisodePage,
   Speaker,
   SpeakerLabels,
   SpeakerMappingResponse,
@@ -87,6 +88,10 @@ export async function listPublicEpisodes(): Promise<PublicEpisode[]> {
   return request<PublicEpisode[]>("/public/episodes");
 }
 
+export async function listPublicEpisodePage(page: number, pageSize = 10): Promise<PublicEpisodePage> {
+  return request<PublicEpisodePage>(`/public/episodes/archive?page=${page}&page_size=${pageSize}`);
+}
+
 export async function getPublicEpisode(episodeId: string): Promise<PublicEpisode> {
   return request<PublicEpisode>(`/public/episodes/${episodeId}`);
 }
@@ -97,6 +102,12 @@ export async function getPublicEpisodeTrivia(episodeId: string): Promise<TriviaI
 
 export async function listPublicTrivia(limit = 24, offset = 0): Promise<TriviaItem[]> {
   return request<TriviaItem[]>(`/public/trivia?limit=${limit}&offset=${offset}`);
+}
+
+export async function listRandomPublicTrivia(limit = 4, excludeIds: string[] = []): Promise<TriviaItem[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  excludeIds.forEach(id => params.append("exclude_id", id));
+  return request<TriviaItem[]>(`/public/trivia/random?${params}`);
 }
 
 export async function getEpisode(episodeId: string): Promise<Episode> {
