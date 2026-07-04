@@ -38,7 +38,7 @@ describe("episode workspace routing", () => {
 
     const transcribe = await screen.findByRole("button", { name: "Transcribe" });
     const extract = screen.getByRole("button", { name: "Extract trivia" });
-    const publish = screen.getByRole("button", { name: "Publish" });
+    const publish = screen.getByRole("button", { name: "Show on website" });
     const refresh = screen.getByRole("button", { name: "Refresh" });
     expect(transcribe.compareDocumentPosition(extract) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(extract.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -51,6 +51,22 @@ describe("episode workspace routing", () => {
     ));
   });
 
+  it("orders processing metrics and uses the shared completed status style", async () => {
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode })));
+    renderApp("/admin/episodes/episode-1/overview");
+
+    const processingGrid = (await screen.findByText("Transcription")).closest(".summary-grid");
+    const labels = Array.from(processingGrid?.querySelectorAll(".metric > span") ?? []).map(item => item.textContent);
+    expect(labels).toEqual(["Transcription", "Speaker mapping", "Trivia extraction", "Website visibility"]);
+    await waitFor(() => expect(processingGrid?.querySelectorAll(".status.completed")).toHaveLength(3));
+    expect(processingGrid?.querySelector(".status.hidden")).toHaveTextContent("hidden");
+    expect(processingGrid?.querySelector('a[href="/admin/episodes/episode-1/transcript"]')).toBeInTheDocument();
+    expect(processingGrid?.querySelector('a[href="/admin/episodes/episode-1/speaker-mapping"]')).toBeInTheDocument();
+    expect(processingGrid?.querySelector('a[href="/admin/episodes/episode-1/trivia"]')).toBeInTheDocument();
+    expect(screen.getByLabelText("1 trivia item")).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "Transcribe" })).not.toHaveClass("primary");
+  });
+
   it("disables processing, publication, and deletion actions while a job is active", async () => {
     const activeJob = {
       id: "job-1", episode_id: "episode-1", kind: "transcribe" as const, status: "running" as const,
@@ -60,7 +76,7 @@ describe("episode workspace routing", () => {
     renderApp("/admin/episodes/episode-1/overview");
 
     expect(await screen.findByRole("button", { name: "Transcribe" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Show on website" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete episode" })).toBeDisabled();
   });
 
@@ -143,6 +159,12 @@ function requestRouter(data: { episode: Episode; speakers?: Episode["speakers"];
     if (url.endsWith("/episodes/episode-1/publication") && init?.method === "PATCH") return json({ ...data.episode, is_published: true });
     if (url.endsWith("/episodes/episode-1") && init?.method === "DELETE") return new Response(null, { status: 204 });
     if (url.endsWith("/episodes/episode-1/transcript")) return json({ episode_id: "episode-1", transcript: data.transcript ?? {} });
+    if (url.endsWith("/episodes/episode-1/speaker-labels")) return json({
+      episode_id: "episode-1",
+      speakers: data.episode.speakers,
+      mappings: { SPEAKER_00: data.episode.speakers[0] },
+      labels: [{ label: "SPEAKER_00", segment_count: 1, first_seen: 0, last_seen: 1, samples: [], sample_clip_url: "" }]
+    });
     if (url.endsWith("/episodes/episode-1/speaker-mapping")) return json({ episode_id: "episode-1", mappings: data.mappings ?? {} });
     if (url.endsWith("/episodes/episode-1")) return json(data.episode);
     if (url.endsWith("/episodes")) return json([]);

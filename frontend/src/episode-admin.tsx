@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, CircleDashed, ExternalLink, FileAudio,
+  AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, CircleDashed, ExternalLink, FileAudio,
   EyeOff, Globe2, Loader2, Mic2, Pencil, RefreshCcw, Save, Sparkles, Trash2, X
 } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
@@ -59,7 +59,7 @@ export function EpisodeWorkspaceLayout() {
           <Link className="back-link" to="/admin/episodes"><ArrowLeft size={17} />Back to episodes</Link>
           <header className="episode-workspace-heading">
             <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1></div>
-            <StatusPill value={item.is_published ? "published" : "draft"} />
+            <StatusPill value={item.is_published ? "visible" : "hidden"} />
           </header>
           <nav className="episode-tabs" aria-label="Episode workspace">
             {tabs.map(([path, label]) => <NavLink key={path} to={`/admin/episodes/${episodeId}/${path}`}>{label}</NavLink>)}
@@ -116,7 +116,6 @@ export function EpisodeOverviewTab() {
           <Detail label="Episode">{episodeLabel(episode)}</Detail>
           <Detail label="Description" wide>{episode.episode_description || "Not set"}</Detail>
           <Detail label="Published at">{formatDate(episode.published_at)}</Detail>
-          <Detail label="Visibility"><StatusPill value={episode.is_published ? "published" : "draft"} /></Detail>
           <Detail label="Speakers">{episode.speakers.map(speaker => speaker.name).join(", ") || "Not set"}</Detail>
           <Detail label="Source">{episode.source_url ? <a href={episode.source_url} target="_blank" rel="noreferrer">Open episode <ExternalLink size={14} /></a> : "Not set"}</Detail>
           <Detail label="Created">{formatDate(episode.created_at)}</Detail>
@@ -125,17 +124,17 @@ export function EpisodeOverviewTab() {
       </section>
       <section className="workspace-section">
         <SectionHeading icon={<FileAudio />} title="Processing" />
-        <div className="summary-grid">
-          <Metric label="Transcript" value={<StatusPill value={episode.transcript_status} />} />
-          <Metric label="Trivia" value={<StatusPill value={episode.trivia_status} />} />
-          <Metric label="Trivia items" value={episode.trivia_count} />
-          <Metric label="Speaker mapping" value={mappingComplete ? "Complete" : "Incomplete"} />
+        <div className="summary-grid processing-summary-grid">
+          <ProcessingMetric label="Transcription" to={`/admin/episodes/${episodeId}/transcript`} value={<StatusPill value={episode.transcript_status} />} />
+          <ProcessingMetric label="Speaker mapping" to={`/admin/episodes/${episodeId}/speaker-mapping`} value={<StatusPill value={mappingComplete ? "completed" : "missing"} />} />
+          <ProcessingMetric label="Trivia extraction" to={`/admin/episodes/${episodeId}/trivia`} value={<StatusPill value={episode.trivia_status} />} count={episode.trivia_count} />
+          <Metric label="Website visibility" value={<StatusPill value={episode.is_published ? "visible" : "hidden"} />} />
         </div>
         {(activeJobId || episode.active_job) && <JobPanel job={currentJob} error={job.error} />}
         <div className="action-strip">
-          <button className="button primary" type="button" onClick={() => transcribe.mutate()} disabled={transcribe.isPending || processing}><Mic2 size={16} />Transcribe</button>
+          <button className="button" type="button" onClick={() => transcribe.mutate()} disabled={transcribe.isPending || processing}><Mic2 size={16} />Transcribe</button>
           <button className="button" type="button" onClick={() => extract.mutate()} disabled={extract.isPending || processing || !mappingComplete}><Sparkles size={16} />Extract trivia</button>
-          <button className="button" type="button" onClick={() => publication.mutate()} disabled={publication.isPending || processing}>{episode.is_published ? <EyeOff size={16} /> : <Globe2 size={16} />}{episode.is_published ? "Unpublish" : "Publish"}</button>
+          <button className="button" type="button" onClick={() => publication.mutate()} disabled={publication.isPending || processing}>{episode.is_published ? <EyeOff size={16} /> : <Globe2 size={16} />}{episode.is_published ? "Hide from website" : "Show on website"}</button>
           <button className="button ghost" type="button" onClick={() => refreshEpisode(client, episodeId)}><RefreshCcw size={16} />Refresh</button>
         </div>
         {episode.transcript_status === "completed" && !labels.isLoading && !mappingComplete && <Notice>Complete the <Link to={`/admin/episodes/${episodeId}/speaker-mapping`}>speaker mapping</Link> before extracting trivia.</Notice>}
@@ -180,7 +179,7 @@ export function EpisodeDetailsTab() {
 
   return (
     <section className="workspace-section">
-      <SectionHeading title="Edit episode details" hint="Changes to published episodes appear on the public site immediately." />
+      <SectionHeading title="Edit episode details" hint="Changes to episodes visible on the website appear immediately." />
       <form className="form-grid" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
         <label className="field"><RequiredLabel>Episode title</RequiredLabel><input required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
         <label className="field"><span>Episode kind</span><select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.target.value as NonNullable<Episode["episode_kind"]>, number: event.target.value === "announcement" ? "" : draft.number || 1 })}><option value="main">Main episode</option><option value="mini">Mini episode</option><option value="announcement">Announcement</option></select></label>
@@ -295,6 +294,7 @@ function timeRange(start: number | null, end: number | null) { if (start === nul
 function refreshEpisode(client: ReturnType<typeof useQueryClient>, episodeId: string) { [["episode", episodeId], ["episodes"], ["public"], ["speaker-labels", episodeId], ["speaker-mapping", episodeId], ["transcript", episodeId], ["trivia", episodeId]].forEach(queryKey => void client.invalidateQueries({ queryKey })); }
 function SectionHeading({ title, hint, icon }: { title: string; hint?: string; icon?: React.ReactNode }) { return <div className="section-heading"><div>{icon}<h2>{title}</h2></div>{hint && <p>{hint}</p>}</div>; }
 function Metric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
+function ProcessingMetric({ label, value, to, count = 0 }: { label: string; value: React.ReactNode; to: string; count?: number }) { return <Link className="metric processing-metric" to={to}><span>{label}</span><strong>{value}{count > 0 && <span className="metric-count" aria-label={`${count} trivia ${count === 1 ? "item" : "items"}`}>{count}</span>}</strong><ArrowRight aria-hidden="true" /></Link>; }
 function Detail({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <div className={wide ? "detail-item wide" : "detail-item"}><dt>{label}</dt><dd>{children}</dd></div>; }
 function JobPanel({ job, error }: { job?: Job; error: Error | null }) { if (error) return <ErrorMessage error={error} />; if (!job) return <Loading />; const percent = job.progress_current != null && job.progress_total ? Math.min(100, Math.round(job.progress_current / job.progress_total * 100)) : null; return <div className="job-progress"><Notice kind={job.status === "failed" ? "error" : job.status === "succeeded" ? "success" : "info"}>{job.status === "succeeded" ? <CheckCircle2 size={16} /> : job.status === "failed" ? <AlertCircle size={16} /> : <CircleDashed className="spin" size={16} />}{job.progress_stage || job.kind} is {job.status}{job.error ? `: ${job.error}` : ""}</Notice>{percent !== null && <progress max="100" value={percent} />}</div>; }
 function episodeLabel(episode: Episode) { if (episode.episode_kind === "announcement") return "Announcement"; if (episode.episode_kind === "mini") return `Mini episode ${episode.episode_number}`; return `Episode ${episode.episode_number}`; }
