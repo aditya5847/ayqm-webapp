@@ -17,6 +17,7 @@ from backend.app.repositories import (
 )
 from backend.app.services.backups import create_database_backup
 from backend.app.services.rss_import import classify_episode, ensure_transcription_job, parse_feed
+from backend.app.storage import LocalObjectStorage, R2ObjectStorage
 
 
 RSS_FIXTURE = b"""<?xml version="1.0"?>
@@ -137,6 +138,56 @@ def test_portable_backup_is_written_to_local_object_storage(tmp_path, monkeypatc
     finally:
         restored.close()
     get_settings.cache_clear()
+
+
+def test_local_object_storage_deletion_is_idempotent(tmp_path):
+    storage = LocalObjectStorage(tmp_path)
+    storage.put_json("episodes/episode-1/source.json", {"source": True})
+    storage.put_json("artifacts/episode-1/transcript.json", {"segments": []})
+    storage.put_json("artifacts/episode-1/trivia.json", {"items": []})
+
+    storage.delete_object("episodes/episode-1/source.json")
+    storage.delete_object("episodes/episode-1/source.json")
+    storage.delete_prefix("artifacts/episode-1/")
+    storage.delete_prefix("artifacts/episode-1/")
+
+    assert not (tmp_path / "episodes/episode-1/source.json").exists()
+    assert not (tmp_path / "artifacts/episode-1").exists()
+
+
+def test_r2_object_storage_deletes_objects_and_batched_prefixes():
+    class Paginator:
+        def paginate(self, **kwargs):
+            assert kwargs == {"Bucket": "test-bucket", "Prefix": "artifacts/episode-1/"}
+            return [{"Contents": [{"Key": f"artifact-{index}"} for index in range(1001)]}, {}]
+
+    class Client:
+        def __init__(self):
+            self.deleted_objects = []
+            self.deleted_batches = []
+
+        def delete_object(self, **kwargs):
+            self.deleted_objects.append(kwargs)
+
+        def get_paginator(self, operation):
+            assert operation == "list_objects_v2"
+            return Paginator()
+
+        def delete_objects(self, **kwargs):
+            self.deleted_batches.append(kwargs)
+
+    storage = R2ObjectStorage.__new__(R2ObjectStorage)
+    storage.client = Client()
+    storage.bucket = "test-bucket"
+
+    storage.delete_object("episodes/episode-1/source.mp3")
+    storage.delete_prefix("artifacts/episode-1/")
+
+    assert storage.client.deleted_objects == [
+        {"Bucket": "test-bucket", "Key": "episodes/episode-1/source.mp3"}
+    ]
+    assert [len(batch["Delete"]["Objects"]) for batch in storage.client.deleted_batches] == [1000, 1]
+    assert all(batch["Delete"]["Quiet"] is True for batch in storage.client.deleted_batches)
 
 
 def test_api_starts_without_transcription_dependencies(tmp_path):

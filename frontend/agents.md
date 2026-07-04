@@ -72,11 +72,11 @@ editorial; keep admin pages dense and operational.
 - Cover routing, loading/empty/error states, Coming Soon handling, answer reveal,
   required upload fields, and admin mutation flows with focused tests.
 
-## Deferred Episode Management Plan
+## Episode Management
 - Keep Overview metadata read-only, but make its processing action order
   Transcribe, Extract trivia, Publish/Unpublish, and Refresh. Disable publication
   while its mutation or any episode job is active.
-- Use the planned `PATCH /episodes/{episode_id}/publication` endpoint. Show
+- Use `PATCH /episodes/{episode_id}/publication`. Show
   Publish for drafts and Unpublish for published episodes, refresh admin/public
   queries on success, and refresh immediately when trivia extraction returns an
   episode to draft.

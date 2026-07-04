@@ -77,6 +77,21 @@ class AskerOut(BaseModel):
     name: str
 
 
+class JobOut(BaseModel):
+    id: str
+    episode_id: str
+    kind: JobKind
+    status: JobStatus
+    error: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    progress_stage: str | None = None
+    progress_current: float | None = None
+    progress_total: float | None = None
+    attempts: int = 0
+
+
 class EpisodeOut(BaseModel):
     id: str
     episode_title: str
@@ -98,23 +113,9 @@ class EpisodeOut(BaseModel):
     trivia_status: str
     trivia_count: int
     is_published: bool
+    active_job: JobOut | None = None
     created_at: datetime
     updated_at: datetime
-
-
-class JobOut(BaseModel):
-    id: str
-    episode_id: str
-    kind: JobKind
-    status: JobStatus
-    error: str | None = None
-    created_at: datetime
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
-    progress_stage: str | None = None
-    progress_current: float | None = None
-    progress_total: float | None = None
-    attempts: int = 0
 
 
 class JobAccepted(BaseModel):
@@ -180,6 +181,10 @@ class EpisodeUpdate(BaseModel):
         if self.episode_kind != "announcement" and self.episode_number is None:
             raise ValueError("episode_number is required for main and mini episodes")
         return self
+
+
+class EpisodePublicationUpdate(BaseModel):
+    is_published: bool
 
 
 class DirectUploadCreate(BaseModel):

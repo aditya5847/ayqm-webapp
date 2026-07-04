@@ -16,7 +16,7 @@ describe("episode workspace routing", () => {
     expect(await screen.findByRole("link", { name: /Back to episodes/ })).toHaveAttribute("href", "/admin/episodes");
     expect((await screen.findAllByText("Episode 12")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: "Episode overview" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Overview" })).toHaveClass("active");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Overview" })).toHaveClass("active"));
     expect(screen.queryByRole("button", { name: "Save details" })).not.toBeInTheDocument();
   });
 
@@ -28,6 +28,62 @@ describe("episode workspace routing", () => {
     expect(screen.getByRole("link", { name: "Details" })).toHaveClass("active");
     expect(screen.getByRole("textbox", { name: /Episode title/ })).toHaveValue("A test episode");
     expect(screen.getByRole("button", { name: "Save details" })).toBeInTheDocument();
+    expect(screen.queryByText("Publish this episode")).not.toBeInTheDocument();
+  });
+
+  it("publishes from Overview and keeps actions in workflow order", async () => {
+    const fetchMock = vi.fn(requestRouter({ episode: { ...episode, transcript_status: "missing" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/admin/episodes/episode-1/overview");
+
+    const transcribe = await screen.findByRole("button", { name: "Transcribe" });
+    const extract = screen.getByRole("button", { name: "Extract trivia" });
+    const publish = screen.getByRole("button", { name: "Publish" });
+    const refresh = screen.getByRole("button", { name: "Refresh" });
+    expect(transcribe.compareDocumentPosition(extract) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(extract.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(publish.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(publish);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/episodes/episode-1/publication",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ is_published: true }) })
+    ));
+  });
+
+  it("disables processing, publication, and deletion actions while a job is active", async () => {
+    const activeJob = {
+      id: "job-1", episode_id: "episode-1", kind: "transcribe" as const, status: "running" as const,
+      error: null, created_at: "2026-01-01T00:00:00Z", started_at: null, finished_at: null
+    };
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: { ...episode, transcript_status: "missing", active_job: activeJob } })));
+    renderApp("/admin/episodes/episode-1/overview");
+
+    expect(await screen.findByRole("button", { name: "Transcribe" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete episode" })).toBeDisabled();
+  });
+
+  it("requires the exact episode title before permanent deletion", async () => {
+    const fetchMock = vi.fn(requestRouter({ episode: { ...episode, transcript_status: "missing" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/admin/episodes/episode-1/overview");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete episode" }));
+    const confirm = screen.getByRole("button", { name: "Delete permanently" });
+    const input = screen.getByRole("textbox", { name: "Type the episode title to confirm" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(input, { target: { value: "a test episode" } });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(input, { target: { value: "  A test episode  " } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/episodes/episode-1",
+      expect.objectContaining({ method: "DELETE" })
+    ));
+    expect(await screen.findByRole("heading", { name: "Episodes" })).toBeInTheDocument();
   });
 
   it("defaults to grouped Script and preserves the JSON transcript view", async () => {
@@ -81,13 +137,17 @@ describe("trivia editing", () => {
 });
 
 function requestRouter(data: { episode: Episode; speakers?: Episode["speakers"]; transcript?: Record<string, unknown>; mappings?: Record<string, Episode["speakers"][number]> }) {
-  return async (input: RequestInfo | URL) => {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/auth/session")) return json({ authenticated: true });
+    if (url.endsWith("/episodes/episode-1/publication") && init?.method === "PATCH") return json({ ...data.episode, is_published: true });
+    if (url.endsWith("/episodes/episode-1") && init?.method === "DELETE") return new Response(null, { status: 204 });
     if (url.endsWith("/episodes/episode-1/transcript")) return json({ episode_id: "episode-1", transcript: data.transcript ?? {} });
     if (url.endsWith("/episodes/episode-1/speaker-mapping")) return json({ episode_id: "episode-1", mappings: data.mappings ?? {} });
     if (url.endsWith("/episodes/episode-1")) return json(data.episode);
+    if (url.endsWith("/episodes")) return json([]);
     if (url.endsWith("/speakers")) return json(data.speakers ?? []);
+    if (url.endsWith("/jobs/job-1")) return json(data.episode.active_job);
     return json({ detail: "Not found" }, 404);
   };
 }
@@ -105,7 +165,8 @@ const episode: Episode = {
   source_url: "https://example.com", extra_metadata: {},
   speakers: [{ id: "speaker-1", name: "Ada" }], audio_path: "/tmp/audio.mp3",
   audio_content_type: "audio/mpeg", transcript_status: "completed", trivia_status: "completed",
-  trivia_count: 1, is_published: false, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z"
+  trivia_count: 1, is_published: false, active_job: null,
+  created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z"
 };
 
 const trivia: TriviaItem = {

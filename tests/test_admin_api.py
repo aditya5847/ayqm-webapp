@@ -3,7 +3,14 @@ from types import SimpleNamespace
 
 from backend.app.config import get_settings
 from backend.app.db import get_connection
-from backend.app.repositories import get_trivia_item, replace_speaker_mapping, save_transcript, save_trivia_items
+from backend.app.repositories import (
+    create_job,
+    get_trivia_item,
+    replace_speaker_mapping,
+    save_transcript,
+    save_trivia_items,
+    update_job_status,
+)
 from backend.app.schemas import TriviaRephraseOut
 from backend.app.services.rephrase import RephraseConfigurationError, RephraseProviderError
 from tests.conftest import TEST_PASSWORD
@@ -68,6 +75,8 @@ def _seed_labeled_trivia(episode_id, speaker_id):
 def test_admin_login_session_logout_and_route_protection(unauth_client):
     assert unauth_client.get("/speakers").status_code == 401
     assert unauth_client.get("/episodes/missing/speaker-labels/SPEAKER_00/sample").status_code == 401
+    assert unauth_client.patch("/episodes/missing/publication", json={"is_published": True}).status_code == 401
+    assert unauth_client.delete("/episodes/missing").status_code == 401
     assert unauth_client.get("/auth/session").json() == {"authenticated": False}
     assert unauth_client.post("/auth/login", json={"password": "wrong"}).status_code == 401
 
@@ -251,6 +260,116 @@ def test_starting_trivia_extraction_unpublishes_episode(client, monkeypatch):
     assert extraction.status_code == 202
     assert client.get(f"/episodes/{episode['id']}").json()["is_published"] is False
     assert client.get(f"/public/episodes/{episode['id']}").status_code == 404
+
+
+def test_episode_publication_and_permanent_delete(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    trivia_id = _seed_labeled_trivia(episode["id"], speaker["id"])
+    with get_connection() as conn:
+        save_transcript(
+            conn,
+            episode["id"],
+            f"data/episodes/{episode['id']}/transcript.json",
+            {"segments": [{"start": 0, "end": 1, "text": "Fact", "speaker": "SPEAKER_00"}]},
+        )
+        job = create_job(conn, episode["id"], "extract_trivia")
+        update_job_status(conn, job["id"], "succeeded")
+        conn.execute(
+            "INSERT INTO gemini_usage VALUES (?, ?, ?, ?, 'v1', ?, ?, ?, ?, ?, ?)",
+            ["usage-1", job["id"], episode["id"], "gemini-test", "transcript-hash", 10, 5, 0.01, 0.01, "2026-07-04"],
+        )
+
+    settings = get_settings()
+    generated_dir = settings.episode_root / episode["id"]
+    generated_dir.mkdir(parents=True)
+    (generated_dir / "trivia.json").write_text("{}", encoding="utf-8")
+    upload_dir = settings.upload_root / episode["id"]
+    assert upload_dir.exists()
+
+    publish = client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True})
+    assert publish.status_code == 200
+    assert publish.json()["is_published"] is True
+    assert publish.json()["active_job"] is None
+    assert client.get(f"/public/episodes/{episode['id']}").status_code == 200
+
+    unpublish = client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": False})
+    assert unpublish.status_code == 200
+    assert client.get(f"/public/episodes/{episode['id']}").status_code == 404
+
+    response = client.delete(f"/episodes/{episode['id']}")
+    assert response.status_code == 204
+    assert client.get(f"/episodes/{episode['id']}").status_code == 404
+    assert not upload_dir.exists()
+    assert not generated_dir.exists()
+    with get_connection() as conn:
+        for table in ("episodes", "episode_speakers", "episode_speaker_mappings", "transcripts", "trivia_items", "jobs"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {('id' if table == 'episodes' else 'episode_id')} = ?", [episode["id"]]).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM gemini_usage WHERE episode_id = ?", [episode["id"]]).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM speakers WHERE id = ?", [speaker["id"]]).fetchone()[0] == 1
+    assert trivia_id
+
+
+def test_active_episode_job_blocks_publication_and_deletion(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    with get_connection() as conn:
+        job = create_job(conn, episode["id"], "transcribe")
+
+    detail = client.get(f"/episodes/{episode['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["active_job"]["id"] == job["id"]
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True}).status_code == 409
+    assert client.delete(f"/episodes/{episode['id']}").status_code == 409
+
+    with get_connection() as conn:
+        update_job_status(conn, job["id"], "failed", "test complete")
+    assert client.get(f"/episodes/{episode['id']}").json()["active_job"] is None
+
+
+def test_episode_delete_cleans_object_storage_and_keeps_record_on_cleanup_failure(client, monkeypatch):
+    from backend.app.routes import episodes as episode_routes
+
+    class RecordingStorage:
+        def __init__(self):
+            self.objects = []
+            self.prefixes = []
+            self.fail = False
+
+        def delete_object(self, key):
+            if self.fail:
+                raise RuntimeError("storage unavailable")
+            self.objects.append(key)
+
+        def delete_prefix(self, prefix):
+            self.prefixes.append(prefix)
+
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    storage = RecordingStorage()
+    monkeypatch.setattr(episode_routes, "get_object_storage", lambda settings: storage)
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE episodes SET audio_path = ?, audio_object_key = ? WHERE id = ?",
+            [f"episodes/{episode['id']}/source.mp3", f"episodes/{episode['id']}/source.mp3", episode["id"]],
+        )
+        job = create_job(conn, episode["id"], "transcribe")
+        update_job_status(conn, job["id"], "succeeded")
+        conn.execute("UPDATE jobs SET artifact_key = ? WHERE id = ?", [f"artifacts/{episode['id']}/transcript.json", job["id"]])
+
+    storage.fail = True
+    failed = client.delete(f"/episodes/{episode['id']}")
+    assert failed.status_code == 500
+    assert client.get(f"/episodes/{episode['id']}").status_code == 200
+
+    storage.fail = False
+    deleted = client.delete(f"/episodes/{episode['id']}")
+    assert deleted.status_code == 204
+    assert storage.objects == [
+        f"episodes/{episode['id']}/source.mp3",
+        f"artifacts/{episode['id']}/transcript.json",
+    ]
+    assert storage.prefixes == [f"artifacts/{episode['id']}/"]
 
 
 def test_missing_auth_configuration_returns_503(tmp_path, monkeypatch):

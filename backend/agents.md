@@ -113,20 +113,20 @@ WhisperX or Gemini.
 - Starting trivia extraction or full processing unpublishes the episode. Trivia
   replacement also enforces draft status and never republishes automatically.
 
-## Deferred Episode Management Plan
-- Add `PATCH /episodes/{episode_id}/publication` with an `is_published` boolean
-  and return the updated `EpisodeOut`. Publishing remains valid with zero trivia.
-- Add `active_job: JobOut | null` to admin `EpisodeOut`; derive it from the most
+## Episode Management
+- `PATCH /episodes/{episode_id}/publication` accepts an `is_published` boolean
+  and returns the updated `EpisodeOut`. Publishing remains valid with zero trivia.
+- Admin `EpisodeOut` includes `active_job: JobOut | null`, derived from the most
   recent queued/running episode job. Do not expose it from `/public` schemas.
-- Reject publication changes and deletion with `409` while any episode job is
+- Publication changes and deletion return `409` while any episode job is
   queued or running.
-- Add `DELETE /episodes/{episode_id}` returning `204`. Permanently remove
+- `DELETE /episodes/{episode_id}` returns `204` and permanently removes
   episode speaker selections, mappings, transcript, trivia, jobs, and the
   episode row in one transaction. Retain `gemini_usage` for budget accounting.
-- Extend object storage with idempotent object and prefix deletion. Delete the
+- Object storage supports idempotent object and prefix deletion. Deletion removes the
   exact source-audio key, `artifacts/{episode_id}/`, `data/uploads/{episode_id}/`,
   and `data/episodes/{episode_id}/`. Attempt storage cleanup before database
   deletion so a failure leaves the episode available for retry.
-- Test authentication, publish/unpublish, public visibility, active-job
+- Tests cover authentication, publish/unpublish, public visibility, active-job
   conflicts, complete cascade behavior, retained Gemini usage, and R2/local
   cleanup. A deleted RSS item may be imported again as a new episode.

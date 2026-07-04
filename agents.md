@@ -97,19 +97,19 @@ DuckDB VSS/HNSW index for nearest-neighbor search over trivia items.
 - [x] R2 direct uploads, RSS import, leased external workers, portable backups,
       and Cloudflare/Railway deployment configuration added.
 
-## Next Planned Work: Episode Administration
-- [ ] Add `PATCH /episodes/{episode_id}/publication` for explicit
+## Completed Episode Administration
+- [x] Add `PATCH /episodes/{episode_id}/publication` for explicit
       Publish/Unpublish actions. Publishing does not require trivia, but both
       actions are blocked while an episode job is queued or running.
-- [ ] Add `active_job` to admin episode responses so processing controls remain
+- [x] Add `active_job` to admin episode responses so processing controls remain
       safe after a browser refresh. Public schemas must continue to omit jobs.
-- [ ] Add permanent `DELETE /episodes/{episode_id}`. Block deletion during an
+- [x] Add permanent `DELETE /episodes/{episode_id}`. Block deletion during an
       active job; remove episode-owned database rows, source audio, transcript
       artifacts, and local caches, but retain `gemini_usage` as cost history.
-- [ ] Put Publish/Unpublish beside Extract trivia on Overview and remove the
+- [x] Put Publish/Unpublish beside Extract trivia on Overview and remove the
       publication checkbox from Details. Metadata in Overview remains read-only.
-- [ ] Put Delete episode in an Overview danger zone. Warn that audio,
+- [x] Put Delete episode in an Overview danger zone. Warn that audio,
       transcript, trivia, mappings, and processing history will be permanently
       removed, and require the exact episode title before enabling deletion.
-- [ ] Cover backend cascade/storage behavior and frontend mutation, confirmation,
+- [x] Cover backend cascade/storage behavior and frontend mutation, confirmation,
       active-job, navigation, and query-invalidation flows with focused tests.

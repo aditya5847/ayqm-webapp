@@ -343,6 +343,7 @@ def _episode_from_row(conn: DuckDBPyConnection, row: tuple[Any, ...]) -> dict[st
         "duration_seconds": row[21],
         "rss_imported_at": row[22],
         "speakers": list_episode_speakers(conn, episode_id),
+        "active_job": get_active_episode_job(conn, episode_id),
     }
 
 
@@ -490,6 +491,45 @@ def get_job(conn: DuckDBPyConnection, job_id: str) -> dict[str, Any] | None:
         "artifact_key": row[15],
         "artifact_sha256": row[16],
     }
+
+
+def get_active_episode_job(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT id FROM jobs
+        WHERE episode_id = ? AND status IN ('queued', 'running')
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        [episode_id],
+    ).fetchone()
+    return get_job(conn, row[0]) if row else None
+
+
+def episode_artifact_keys(conn: DuckDBPyConnection, episode_id: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT artifact_key FROM jobs WHERE episode_id = ? AND artifact_key IS NOT NULL",
+        [episode_id],
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def delete_episode(conn: DuckDBPyConnection, episode_id: str) -> bool:
+    if get_episode(conn, episode_id) is None:
+        return False
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        conn.execute("DELETE FROM episode_speaker_mappings WHERE episode_id = ?", [episode_id])
+        conn.execute("DELETE FROM episode_speakers WHERE episode_id = ?", [episode_id])
+        conn.execute("DELETE FROM trivia_items WHERE episode_id = ?", [episode_id])
+        conn.execute("DELETE FROM transcripts WHERE episode_id = ?", [episode_id])
+        conn.execute("DELETE FROM jobs WHERE episode_id = ?", [episode_id])
+        conn.execute("DELETE FROM episodes WHERE id = ?", [episode_id])
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return True
 
 
 def update_job_status(
