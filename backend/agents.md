@@ -65,6 +65,10 @@ known episode speakers.
 - WhisperX 3.8.x exposes diarization at `whisperx.diarize.DiarizationPipeline`;
   keep the webapp compatibility shim unless `ayqm-transcribe` fully handles this
   API shape.
+- Runpod must receive an absolute `AYQM_API_URL` including `https://` and run on
+  a CUDA 12.8-compatible host. Keep the explicit `AYQM-Worker/1.0` User-Agent;
+  Python's default urllib signature is rejected by Cloudflare BIC with error
+  1010.
 
 ## Storage
 - DuckDB path defaults to `data/ayqm.duckdb`.
@@ -108,3 +112,21 @@ WhisperX or Gemini.
   it. Accepted text is persisted only through PATCH.
 - Starting trivia extraction or full processing unpublishes the episode. Trivia
   replacement also enforces draft status and never republishes automatically.
+
+## Episode Management
+- `PATCH /episodes/{episode_id}/publication` accepts an `is_published` boolean
+  and returns the updated `EpisodeOut`. Publishing remains valid with zero trivia.
+- Admin `EpisodeOut` includes `active_job: JobOut | null`, derived from the most
+  recent queued/running episode job. Do not expose it from `/public` schemas.
+- Publication changes and deletion return `409` while any episode job is
+  queued or running.
+- `DELETE /episodes/{episode_id}` returns `204` and permanently removes
+  episode speaker selections, mappings, transcript, trivia, jobs, and the
+  episode row in one transaction. Retain `gemini_usage` for budget accounting.
+- Object storage supports idempotent object and prefix deletion. Deletion removes the
+  exact source-audio key, `artifacts/{episode_id}/`, `data/uploads/{episode_id}/`,
+  and `data/episodes/{episode_id}/`. Attempt storage cleanup before database
+  deletion so a failure leaves the episode available for retry.
+- Tests cover authentication, publish/unpublish, public visibility, active-job
+  conflicts, complete cascade behavior, retained Gemini usage, and R2/local
+  cleanup. A deleted RSS item may be imported again as a new episode.

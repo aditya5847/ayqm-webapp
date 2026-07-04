@@ -28,6 +28,7 @@ export interface Episode {
   trivia_status: string;
   trivia_count: number;
   is_published?: boolean;
+  active_job: Job | null;
   created_at: string;
   updated_at: string;
 }

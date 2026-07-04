@@ -71,6 +71,9 @@ root-level `frontend/` folder.
 - Background job status is read from `GET /jobs/{job_id}`.
 - External workers request a fresh transcript upload ticket from
   `POST /worker/jobs/{job_id}/transcript-upload` using their active lease token.
+- External workers require an absolute HTTPS `AYQM_API_URL`. The Runpod image
+  requires a CUDA 12.8-compatible host and sends an explicit `AYQM-Worker/1.0`
+  User-Agent so Cloudflare Browser Integrity Check does not return error 1010.
 - Trivia extraction requires a completed diarized transcript, full speaker-label
   mapping, and a Gemini/Google API key in the webapp process environment.
 - Diarization also requires `HF_TOKEN`, accepted Pyannote model terms, and a
@@ -93,3 +96,20 @@ DuckDB VSS/HNSW index for nearest-neighbor search over trivia items.
       deletion, and AI rephrasing added.
 - [x] R2 direct uploads, RSS import, leased external workers, portable backups,
       and Cloudflare/Railway deployment configuration added.
+
+## Completed Episode Administration
+- [x] Add `PATCH /episodes/{episode_id}/publication` for explicit
+      Publish/Unpublish actions. Publishing does not require trivia, but both
+      actions are blocked while an episode job is queued or running.
+- [x] Add `active_job` to admin episode responses so processing controls remain
+      safe after a browser refresh. Public schemas must continue to omit jobs.
+- [x] Add permanent `DELETE /episodes/{episode_id}`. Block deletion during an
+      active job; remove episode-owned database rows, source audio, transcript
+      artifacts, and local caches, but retain `gemini_usage` as cost history.
+- [x] Put Publish/Unpublish beside Extract trivia on Overview and remove the
+      publication checkbox from Details. Metadata in Overview remains read-only.
+- [x] Put Delete episode in an Overview danger zone. Warn that audio,
+      transcript, trivia, mappings, and processing history will be permanently
+      removed, and require the exact episode title before enabling deletion.
+- [x] Cover backend cascade/storage behavior and frontend mutation, confirmation,
+      active-job, navigation, and query-invalidation flows with focused tests.

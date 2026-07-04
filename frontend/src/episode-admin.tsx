@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, CircleDashed, ExternalLink, FileAudio,
-  Loader2, Mic2, Pencil, RefreshCcw, Save, Sparkles, Trash2, X
+  AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, CircleDashed, ExternalLink, FileAudio,
+  EyeOff, Globe2, Loader2, Mic2, Pencil, RefreshCcw, Save, Sparkles, Trash2, X
 } from "lucide-react";
-import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
-  apiAssetUrl, deleteTriviaItem, getEpisode, getJob, getSpeakerLabels,
+  apiAssetUrl, deleteEpisode, deleteTriviaItem, getEpisode, getJob, getSpeakerLabels,
   getSpeakerMapping, getTranscript, getTrivia, isUnsupportedFeature, listSpeakers,
   rephraseTriviaItem, saveSpeakerMapping, startTranscription, startTriviaExtraction,
-  updateEpisode, updateTriviaItem
+  updateEpisode, updateEpisodePublication, updateTriviaItem
 } from "./api";
 import type { Episode, Job, JobAccepted, Speaker, SpeakerLabels, TriviaItem, TriviaUpdateInput } from "./types";
 import { transcriptScriptBlocks } from "./transcript";
@@ -45,6 +45,10 @@ export function EpisodeWorkspaceLayout() {
   });
 
   useEffect(() => {
+    if (episode.data?.active_job?.id) setActiveJobId(episode.data.active_job.id);
+  }, [episode.data?.active_job?.id]);
+
+  useEffect(() => {
     if (job.data?.status === "succeeded" || job.data?.status === "failed") refreshEpisode(client, episodeId);
   }, [client, episodeId, job.data?.status]);
 
@@ -55,7 +59,7 @@ export function EpisodeWorkspaceLayout() {
           <Link className="back-link" to="/admin/episodes"><ArrowLeft size={17} />Back to episodes</Link>
           <header className="episode-workspace-heading">
             <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1></div>
-            <StatusPill value={item.is_published ? "published" : "draft"} />
+            <StatusPill value={item.is_published ? "visible" : "hidden"} />
           </header>
           <nav className="episode-tabs" aria-label="Episode workspace">
             {tabs.map(([path, label]) => <NavLink key={path} to={`/admin/episodes/${episodeId}/${path}`}>{label}</NavLink>)}
@@ -72,14 +76,37 @@ export function EpisodeWorkspaceLayout() {
 export function EpisodeOverviewTab() {
   const { episode, episodeId, activeJobId, job, setActiveJobId } = useEpisodeWorkspace();
   const client = useQueryClient();
+  const navigate = useNavigate();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const labels = useQuery({
     queryKey: ["speaker-labels", episodeId],
     queryFn: () => getSpeakerLabels(episodeId),
     enabled: episode.transcript_status === "completed"
   });
   const mappingComplete = isSpeakerMappingComplete(labels.data, mappingFromLabels(labels.data));
+  const currentJob = job.data ?? episode.active_job ?? undefined;
+  const processing = shouldPollJob(currentJob);
   const transcribe = useMutation({ mutationFn: () => startTranscription(episodeId), onSuccess: accepted => setJob(accepted, setActiveJobId) });
-  const extract = useMutation({ mutationFn: () => startTriviaExtraction(episodeId), onSuccess: accepted => setJob(accepted, setActiveJobId) });
+  const extract = useMutation({ mutationFn: () => startTriviaExtraction(episodeId), onSuccess: accepted => { setJob(accepted, setActiveJobId); refreshEpisode(client, episodeId); } });
+  const publication = useMutation({
+    mutationFn: () => updateEpisodePublication(episodeId, !(episode.is_published ?? false)),
+    onSuccess: updated => {
+      client.setQueryData(["episode", episodeId], updated);
+      void client.invalidateQueries({ queryKey: ["episodes"] });
+      void client.invalidateQueries({ queryKey: ["public"] });
+    }
+  });
+  const remove = useMutation({
+    mutationFn: () => deleteEpisode(episodeId),
+    onSuccess: () => {
+      client.removeQueries({ queryKey: ["episode", episodeId] });
+      void client.invalidateQueries({ queryKey: ["episodes"] });
+      void client.invalidateQueries({ queryKey: ["public"] });
+      navigate("/admin/episodes");
+    }
+  });
+  const deletionConfirmed = deleteConfirmation.trim() === episode.episode_title;
 
   return (
     <>
@@ -89,7 +116,6 @@ export function EpisodeOverviewTab() {
           <Detail label="Episode">{episodeLabel(episode)}</Detail>
           <Detail label="Description" wide>{episode.episode_description || "Not set"}</Detail>
           <Detail label="Published at">{formatDate(episode.published_at)}</Detail>
-          <Detail label="Visibility"><StatusPill value={episode.is_published ? "published" : "draft"} /></Detail>
           <Detail label="Speakers">{episode.speakers.map(speaker => speaker.name).join(", ") || "Not set"}</Detail>
           <Detail label="Source">{episode.source_url ? <a href={episode.source_url} target="_blank" rel="noreferrer">Open episode <ExternalLink size={14} /></a> : "Not set"}</Detail>
           <Detail label="Created">{formatDate(episode.created_at)}</Detail>
@@ -98,21 +124,35 @@ export function EpisodeOverviewTab() {
       </section>
       <section className="workspace-section">
         <SectionHeading icon={<FileAudio />} title="Processing" />
-        <div className="summary-grid">
-          <Metric label="Transcript" value={<StatusPill value={episode.transcript_status} />} />
-          <Metric label="Trivia" value={<StatusPill value={episode.trivia_status} />} />
-          <Metric label="Trivia items" value={episode.trivia_count} />
-          <Metric label="Speaker mapping" value={mappingComplete ? "Complete" : "Incomplete"} />
+        <div className="summary-grid processing-summary-grid">
+          <ProcessingMetric label="Transcription" to={`/admin/episodes/${episodeId}/transcript`} value={<StatusPill value={episode.transcript_status} />} />
+          <ProcessingMetric label="Speaker mapping" to={`/admin/episodes/${episodeId}/speaker-mapping`} value={<StatusPill value={mappingComplete ? "completed" : "missing"} />} />
+          <ProcessingMetric label="Trivia extraction" to={`/admin/episodes/${episodeId}/trivia`} value={<StatusPill value={episode.trivia_status} />} count={episode.trivia_count} />
+          <Metric label="Website visibility" value={<StatusPill value={episode.is_published ? "visible" : "hidden"} />} />
         </div>
-        {activeJobId && <JobPanel job={job.data} error={job.error} />}
+        {(activeJobId || episode.active_job) && <JobPanel job={currentJob} error={job.error} />}
         <div className="action-strip">
-          <button className="button primary" type="button" onClick={() => transcribe.mutate()} disabled={transcribe.isPending || shouldPollJob(job.data)}><Mic2 size={16} />Transcribe</button>
-          <button className="button" type="button" onClick={() => extract.mutate()} disabled={extract.isPending || shouldPollJob(job.data) || !mappingComplete}><Sparkles size={16} />Extract trivia</button>
+          <button className="button" type="button" onClick={() => transcribe.mutate()} disabled={transcribe.isPending || processing}><Mic2 size={16} />Transcribe</button>
+          <button className="button" type="button" onClick={() => extract.mutate()} disabled={extract.isPending || processing || !mappingComplete}><Sparkles size={16} />Extract trivia</button>
+          <button className="button" type="button" onClick={() => publication.mutate()} disabled={publication.isPending || processing}>{episode.is_published ? <EyeOff size={16} /> : <Globe2 size={16} />}{episode.is_published ? "Hide from website" : "Show on website"}</button>
           <button className="button ghost" type="button" onClick={() => refreshEpisode(client, episodeId)}><RefreshCcw size={16} />Refresh</button>
         </div>
         {episode.transcript_status === "completed" && !labels.isLoading && !mappingComplete && <Notice>Complete the <Link to={`/admin/episodes/${episodeId}/speaker-mapping`}>speaker mapping</Link> before extracting trivia.</Notice>}
-        <ErrorMessage error={labels.error ?? transcribe.error ?? extract.error} />
+        <ErrorMessage error={labels.error ?? transcribe.error ?? extract.error ?? publication.error} />
       </section>
+      <section className="workspace-section episode-danger-zone">
+        <div><SectionHeading icon={<Trash2 />} title="Delete episode" /><p>Delete this episode and all of its stored content.</p></div>
+        <button className="button danger-button" type="button" onClick={() => setDeleteOpen(true)} disabled={processing || remove.isPending}><Trash2 size={16} />Delete episode</button>
+        <ErrorMessage error={remove.error} />
+      </section>
+      {deleteOpen && <div className="dialog-backdrop">
+        <section className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-episode-title">
+          <div className="confirmation-dialog-heading"><div><p className="eyebrow">Permanent action</p><h2 id="delete-episode-title">Delete {episode.episode_title}?</h2></div><button className="icon-button" type="button" aria-label="Close delete dialog" onClick={() => { setDeleteOpen(false); setDeleteConfirmation(""); }}><X size={18} /></button></div>
+          <p>Audio, transcript, trivia, speaker mappings, and processing history will be permanently deleted. This cannot be undone.</p>
+          <label className="field"><span>Type the episode title to confirm</span><input autoFocus value={deleteConfirmation} onChange={event => setDeleteConfirmation(event.target.value)} /></label>
+          <div className="form-actions"><button className="button" type="button" onClick={() => { setDeleteOpen(false); setDeleteConfirmation(""); }}>Cancel</button><button className="button destructive" type="button" onClick={() => remove.mutate()} disabled={!deletionConfirmed || remove.isPending}>{remove.isPending ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}Delete permanently</button></div>
+        </section>
+      </div>}
     </>
   );
 }
@@ -129,7 +169,7 @@ export function EpisodeDetailsTab() {
       episode_kind: draft.kind,
       episode_description: draft.description.trim() || null,
       published_at: draft.publishedAt || null, source_url: draft.sourceUrl.trim() || null,
-      speaker_ids: draft.speakerIds, is_published: draft.published
+      speaker_ids: draft.speakerIds, is_published: episode.is_published ?? false
     }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["episode", episode.id] });
@@ -139,7 +179,7 @@ export function EpisodeDetailsTab() {
 
   return (
     <section className="workspace-section">
-      <SectionHeading title="Edit episode details" hint="Changes to published episodes appear on the public site immediately." />
+      <SectionHeading title="Edit episode details" hint="Changes to episodes visible on the website appear immediately." />
       <form className="form-grid" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
         <label className="field"><RequiredLabel>Episode title</RequiredLabel><input required value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
         <label className="field"><span>Episode kind</span><select value={draft.kind} onChange={event => setDraft({ ...draft, kind: event.target.value as NonNullable<Episode["episode_kind"]>, number: event.target.value === "announcement" ? "" : draft.number || 1 })}><option value="main">Main episode</option><option value="mini">Mini episode</option><option value="announcement">Announcement</option></select></label>
@@ -150,9 +190,8 @@ export function EpisodeDetailsTab() {
         <fieldset className="field full speaker-picker"><legend>Episode speakers</legend>
           {allSpeakers.isLoading ? <Loading /> : allSpeakers.error ? <ErrorMessage error={allSpeakers.error} /> : <div className="checkbox-grid">{allSpeakers.data?.map(speaker => <label className="check-row" key={speaker.id}><input type="checkbox" checked={draft.speakerIds.includes(speaker.id)} onChange={event => setDraft({ ...draft, speakerIds: event.target.checked ? [...draft.speakerIds, speaker.id] : draft.speakerIds.filter(id => id !== speaker.id) })} />{speaker.name}</label>)}</div>}
         </fieldset>
-        <label className="publish-toggle full"><input type="checkbox" checked={draft.published} onChange={event => setDraft({ ...draft, published: event.target.checked })} /><span><strong>Publish this episode</strong><small>Published episodes and their trivia appear on the public site.</small></span></label>
         {save.isSuccess && <div className="full"><Notice kind="success">Episode details saved.</Notice></div>}
-        {save.error && isUnsupportedFeature(save.error) ? <div className="full"><ComingSoon feature="Episode editing and publishing" /></div> : <div className="full"><ErrorMessage error={save.error} /></div>}
+        {save.error && isUnsupportedFeature(save.error) ? <div className="full"><ComingSoon feature="Episode editing" /></div> : <div className="full"><ErrorMessage error={save.error} /></div>}
         <div className="form-actions full"><button className="button primary" disabled={save.isPending || !draft.title.trim() || draft.speakerIds.length === 0}><Save size={16} />Save details</button></div>
       </form>
     </section>
@@ -247,14 +286,15 @@ export function TriviaItemCard({ item, speakers }: { item: TriviaItem; speakers:
 }
 
 function useEpisodeWorkspace() { return useOutletContext<EpisodeWorkspaceContext>(); }
-function detailsDraft(episode: Episode) { return { title: episode.episode_title, number: episode.episode_number ?? "" as number | "", kind: episode.episode_kind ?? "main", description: episode.episode_description ?? "", publishedAt: episode.published_at?.slice(0, 16) ?? "", sourceUrl: episode.source_url ?? "", speakerIds: episode.speakers.map(speaker => speaker.id), published: episode.is_published ?? false }; }
+function detailsDraft(episode: Episode) { return { title: episode.episode_title, number: episode.episode_number ?? "" as number | "", kind: episode.episode_kind ?? "main", description: episode.episode_description ?? "", publishedAt: episode.published_at?.slice(0, 16) ?? "", sourceUrl: episode.source_url ?? "", speakerIds: episode.speakers.map(speaker => speaker.id) }; }
 function triviaDraft(item: TriviaItem): TriviaUpdateInput { return { type: item.type, question: item.question, answer: item.answer, keywords: item.keywords, confidence: item.confidence, asker_speaker_id: item.asker?.id ?? null }; }
 function mappingFromLabels(labels?: SpeakerLabels) { return labels ? Object.fromEntries(Object.entries(labels.mappings).map(([label, speaker]) => [label, speaker.id])) : {}; }
 function setJob(accepted: JobAccepted, setter: (id: string) => void) { setter(accepted.job_id); }
 function timeRange(start: number | null, end: number | null) { if (start === null && end === null) return "Time unavailable"; return `${formatSeconds(start ?? 0)}-${formatSeconds(end ?? start ?? 0)}`; }
-function refreshEpisode(client: ReturnType<typeof useQueryClient>, episodeId: string) { [["episode", episodeId], ["episodes"], ["speaker-labels", episodeId], ["speaker-mapping", episodeId], ["transcript", episodeId], ["trivia", episodeId]].forEach(queryKey => void client.invalidateQueries({ queryKey })); }
+function refreshEpisode(client: ReturnType<typeof useQueryClient>, episodeId: string) { [["episode", episodeId], ["episodes"], ["public"], ["speaker-labels", episodeId], ["speaker-mapping", episodeId], ["transcript", episodeId], ["trivia", episodeId]].forEach(queryKey => void client.invalidateQueries({ queryKey })); }
 function SectionHeading({ title, hint, icon }: { title: string; hint?: string; icon?: React.ReactNode }) { return <div className="section-heading"><div>{icon}<h2>{title}</h2></div>{hint && <p>{hint}</p>}</div>; }
 function Metric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
+function ProcessingMetric({ label, value, to, count = 0 }: { label: string; value: React.ReactNode; to: string; count?: number }) { return <Link className="metric processing-metric" to={to}><span>{label}</span><strong>{value}{count > 0 && <span className="metric-count" aria-label={`${count} trivia ${count === 1 ? "item" : "items"}`}>{count}</span>}</strong><ArrowRight aria-hidden="true" /></Link>; }
 function Detail({ label, wide, children }: { label: string; wide?: boolean; children: React.ReactNode }) { return <div className={wide ? "detail-item wide" : "detail-item"}><dt>{label}</dt><dd>{children}</dd></div>; }
 function JobPanel({ job, error }: { job?: Job; error: Error | null }) { if (error) return <ErrorMessage error={error} />; if (!job) return <Loading />; const percent = job.progress_current != null && job.progress_total ? Math.min(100, Math.round(job.progress_current / job.progress_total * 100)) : null; return <div className="job-progress"><Notice kind={job.status === "failed" ? "error" : job.status === "succeeded" ? "success" : "info"}>{job.status === "succeeded" ? <CheckCircle2 size={16} /> : job.status === "failed" ? <AlertCircle size={16} /> : <CircleDashed className="spin" size={16} />}{job.progress_stage || job.kind} is {job.status}{job.error ? `: ${job.error}` : ""}</Notice>{percent !== null && <progress max="100" value={percent} />}</div>; }
 function episodeLabel(episode: Episode) { if (episode.episode_kind === "announcement") return "Announcement"; if (episode.episode_kind === "mini") return `Mini episode ${episode.episode_number}`; return `Episode ${episode.episode_number}`; }

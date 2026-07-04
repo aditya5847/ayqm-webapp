@@ -65,12 +65,12 @@ export function HomePage() {
         </div>
       </section>
       <div className="public-content">
-        <QueryState query={episodes} feature="The episode showcase" empty="No published episodes yet.">
+        <QueryState query={episodes} feature="The episode showcase" empty="No episodes are available yet.">
           {(items) => <EpisodeStrip episodes={items.slice(0, 3)} />}
         </QueryState>
         <section className="editorial-section">
           <div className="section-title-row"><div><p className="eyebrow">Test yourself</p><h2>Questions from the show</h2></div><Link to="/trivia">All trivia <ArrowRight size={16} /></Link></div>
-          <QueryState query={trivia} feature="Featured trivia" empty="No published trivia yet.">
+          <QueryState query={trivia} feature="Featured trivia" empty="No trivia is available yet.">
             {(items) => <TriviaGrid items={items} />}
           </QueryState>
         </section>
@@ -83,7 +83,7 @@ export function PublicEpisodesPage() {
   const episodes = useQuery({ queryKey: ["public", "episodes"], queryFn: listPublicEpisodes });
   return (
     <PublicPageHeader eyebrow="Listen and explore" title="Episodes" intro="Every conversation, every question, and the trivia that came out of it.">
-      <QueryState query={episodes} feature="The episode archive" empty="No published episodes yet.">
+      <QueryState query={episodes} feature="The episode archive" empty="No episodes are available yet.">
         {(items) => <div className="episode-archive">{items.map((episode) => <EpisodeRow key={episode.id} episode={episode} />)}</div>}
       </QueryState>
     </PublicPageHeader>
@@ -103,7 +103,7 @@ export function PublicEpisodePage() {
               <img src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
               <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><p>{item.episode_description}</p><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
             </header>
-            <section className="editorial-section"><div className="section-title-row"><div><p className="eyebrow">Play along</p><h2>Trivia from this episode</h2></div></div><QueryState query={trivia} feature="Episode trivia" empty="No trivia has been published for this episode.">{(items) => <TriviaGrid items={items} />}</QueryState></section>
+            <section className="editorial-section"><div className="section-title-row"><div><p className="eyebrow">Play along</p><h2>Trivia from this episode</h2></div></div><QueryState query={trivia} feature="Episode trivia" empty="No trivia is available for this episode.">{(items) => <TriviaGrid items={items} />}</QueryState></section>
           </>
         )}
       </QueryState>
@@ -115,7 +115,7 @@ export function PublicTriviaPage() {
   const trivia = useQuery({ queryKey: ["public", "trivia", 24], queryFn: () => listPublicTrivia(24) });
   return (
     <PublicPageHeader eyebrow="Question bank" title="Trivia" intro="Questions pulled from conversations on Are You Quizzing Me. Make your guess, then reveal the answer.">
-      <QueryState query={trivia} feature="The public trivia collection" empty="No trivia has been published yet.">{(items) => <TriviaGrid items={items} />}</QueryState>
+      <QueryState query={trivia} feature="The public trivia collection" empty="No trivia is available yet.">{(items) => <TriviaGrid items={items} />}</QueryState>
     </PublicPageHeader>
   );
 }

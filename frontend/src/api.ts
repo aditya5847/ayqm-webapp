@@ -166,6 +166,17 @@ export async function updateEpisode(episodeId: string, input: EpisodeUpdateInput
   });
 }
 
+export async function updateEpisodePublication(episodeId: string, isPublished: boolean): Promise<Episode> {
+  return request<Episode>(`/episodes/${episodeId}/publication`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_published: isPublished })
+  });
+}
+
+export async function deleteEpisode(episodeId: string): Promise<void> {
+  await request<void>(`/episodes/${episodeId}`, { method: "DELETE" });
+}
+
 export async function startTranscription(episodeId: string): Promise<JobAccepted> {
   return request<JobAccepted>(`/episodes/${episodeId}/transcribe`, {
     method: "POST",

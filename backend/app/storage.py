@@ -24,6 +24,10 @@ class ObjectStorage(Protocol):
 
     def presign_put(self, key: str, content_type: str, expires_seconds: int = 3600) -> str | None: ...
 
+    def delete_object(self, key: str) -> None: ...
+
+    def delete_prefix(self, prefix: str) -> None: ...
+
 
 def _safe_local_path(root: Path, key: str) -> Path:
     path = (root / key).resolve()
@@ -86,6 +90,20 @@ class LocalObjectStorage:
 
     def presign_put(self, key: str, content_type: str, expires_seconds: int = 3600) -> str | None:
         return None
+
+    def delete_object(self, key: str) -> None:
+        path = _safe_local_path(self.root, key)
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+    def delete_prefix(self, prefix: str) -> None:
+        path = _safe_local_path(self.root, prefix)
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
 
 
 class R2ObjectStorage:
@@ -160,6 +178,19 @@ class R2ObjectStorage:
             Params={"Bucket": self.bucket, "Key": key, "ContentType": content_type},
             ExpiresIn=expires_seconds,
         )
+
+    def delete_object(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def delete_prefix(self, prefix: str) -> None:
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            keys = [item["Key"] for item in page.get("Contents", [])]
+            for start in range(0, len(keys), 1000):
+                self.client.delete_objects(
+                    Bucket=self.bucket,
+                    Delete={"Objects": [{"Key": key} for key in keys[start:start + 1000]], "Quiet": True},
+                )
 
 
 def get_object_storage(settings: Settings | None = None) -> ObjectStorage:

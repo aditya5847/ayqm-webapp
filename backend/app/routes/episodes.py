@@ -14,6 +14,8 @@ from ..db import get_connection
 from ..repositories import (
     create_episode,
     create_job,
+    delete_episode,
+    episode_artifact_keys,
     get_episode,
     get_speaker_mapping,
     get_transcript,
@@ -29,6 +31,7 @@ from ..repositories import (
 from ..schemas import (
     EpisodeMetadata,
     EpisodeOut,
+    EpisodePublicationUpdate,
     EpisodeUpdate,
     DirectUploadComplete,
     DirectUploadCreate,
@@ -160,6 +163,20 @@ def _require_complete_speaker_mapping(conn, episode_id: str, transcript: dict) -
     missing_labels = sorted(labels - mapped_labels)
     if missing_labels:
         raise HTTPException(status_code=409, detail={"unmapped_speaker_labels": missing_labels})
+
+
+def _require_idle_episode(episode: dict) -> None:
+    if episode.get("active_job"):
+        raise HTTPException(status_code=409, detail="Episode has an active processing job")
+
+
+def _remove_episode_directory(root: Path, episode_id: str) -> None:
+    root = root.resolve()
+    path = (root / episode_id).resolve()
+    if root not in path.parents:
+        raise ValueError("Episode directory escapes configured storage root")
+    if path.exists():
+        shutil.rmtree(path)
 
 
 @router.post("", response_model=EpisodeOut, status_code=status.HTTP_201_CREATED)
@@ -294,6 +311,41 @@ def update_episode_detail(episode_id: str, request: EpisodeUpdate) -> dict:
             raise HTTPException(status_code=422, detail={"unknown_speaker_ids": missing})
         episode = update_episode(conn, episode_id, request)
     return episode
+
+
+@router.patch("/{episode_id}/publication", response_model=EpisodeOut)
+def update_episode_publication(episode_id: str, request: EpisodePublicationUpdate) -> dict:
+    with get_connection() as conn:
+        episode = get_episode(conn, episode_id)
+        if episode is None:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        _require_idle_episode(episode)
+        set_episode_published(conn, episode_id, request.is_published)
+        updated = get_episode(conn, episode_id)
+    return updated
+
+
+@router.delete("/{episode_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_episode_detail(episode_id: str) -> None:
+    settings = get_settings()
+    with get_connection() as conn:
+        episode = get_episode(conn, episode_id)
+        if episode is None:
+            raise HTTPException(status_code=404, detail="Episode not found")
+        _require_idle_episode(episode)
+        artifact_keys = episode_artifact_keys(conn, episode_id)
+        try:
+            storage = get_object_storage(settings)
+            if episode.get("audio_object_key"):
+                storage.delete_object(episode["audio_object_key"])
+            for artifact_key in artifact_keys:
+                storage.delete_object(artifact_key)
+            storage.delete_prefix(f"artifacts/{episode_id}/")
+            _remove_episode_directory(settings.upload_root, episode_id)
+            _remove_episode_directory(settings.episode_root, episode_id)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Episode file cleanup failed") from exc
+        delete_episode(conn, episode_id)
 
 
 @router.post("/{episode_id}/transcribe", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
