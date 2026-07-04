@@ -71,3 +71,24 @@ editorial; keep admin pages dense and operational.
   layouts down to 320px. Avoid nested cards and decorative gradients.
 - Cover routing, loading/empty/error states, Coming Soon handling, answer reveal,
   required upload fields, and admin mutation flows with focused tests.
+
+## Deferred Episode Management Plan
+- Keep Overview metadata read-only, but make its processing action order
+  Transcribe, Extract trivia, Publish/Unpublish, and Refresh. Disable publication
+  while its mutation or any episode job is active.
+- Use the planned `PATCH /episodes/{episode_id}/publication` endpoint. Show
+  Publish for drafts and Unpublish for published episodes, refresh admin/public
+  queries on success, and refresh immediately when trivia extraction returns an
+  episode to draft.
+- Remove the publication checkbox and publication draft state from Details.
+  Saving metadata must preserve the episode's current publication value.
+- Add an Overview danger zone with Delete episode. Open an accessible warning
+  dialog explaining that audio, transcript, trivia, mappings, and processing
+  history are permanently removed and cannot be undone. Require typing the
+  exact episode title before enabling the destructive confirmation.
+- Call `DELETE /episodes/{episode_id}` and navigate to `/admin/episodes` after
+  success. Invalidate/remove episode, list, and public caches; display `409`
+  active-job conflicts normally.
+- Add focused tests for button placement, publish/unpublish requests, Details
+  cleanup, active-job disabling, warning/title confirmation, deletion,
+  navigation, and query invalidation. Run `npm test` and `npm run build`.
