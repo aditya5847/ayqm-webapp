@@ -299,6 +299,40 @@ def list_published_episodes(conn: DuckDBPyConnection) -> list[dict[str, Any]]:
     ]
 
 
+def list_published_episode_page(
+    conn: DuckDBPyConnection,
+    *,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    total_items = int(
+        conn.execute("SELECT COUNT(*) FROM episodes WHERE is_published = TRUE").fetchone()[0]
+    )
+    total_pages = (total_items + page_size - 1) // page_size
+    effective_page = min(page, max(total_pages, 1))
+    episode_ids = conn.execute(
+        """
+        SELECT id FROM episodes
+        WHERE is_published = TRUE
+        ORDER BY COALESCE(published_at, created_at) DESC, episode_number DESC, id
+        LIMIT ? OFFSET ?
+        """,
+        [page_size, (effective_page - 1) * page_size],
+    ).fetchall()
+    items = [
+        _public_episode(episode)
+        for (episode_id,) in episode_ids
+        if (episode := get_episode(conn, episode_id)) is not None
+    ]
+    return {
+        "items": items,
+        "page": effective_page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+    }
+
+
 def _public_episode(episode: dict[str, Any]) -> dict[str, Any]:
     return {
         key: episode[key]
@@ -864,6 +898,42 @@ def list_public_trivia(
         """,
         [*params, limit, offset],
     ).fetchall()
+    return [_public_trivia(_trivia_from_row(row)) for row in rows]
+
+
+def list_random_public_trivia(
+    conn: DuckDBPyConnection,
+    *,
+    limit: int,
+    exclude_ids: list[str],
+) -> list[dict[str, Any]]:
+    def random_rows(excluded: list[str], row_limit: int) -> list[tuple[Any, ...]]:
+        filters = ["e.is_published = TRUE"]
+        params: list[Any] = []
+        if excluded:
+            placeholders = ", ".join("?" for _ in excluded)
+            filters.append(f"ti.id NOT IN ({placeholders})")
+            params.extend(excluded)
+        return conn.execute(
+            f"""
+            SELECT
+                ti.id, ti.episode_id, ti.type, ti.question, ti.answer, ti.keywords,
+                ti.timestamp_start, ti.timestamp_end, ti.timestamp_display,
+                ti.speaker_diarization, ti.asker_speaker_id, s.name, ti.confidence, ti.created_at
+            FROM trivia_items ti
+            JOIN episodes e ON e.id = ti.episode_id
+            LEFT JOIN speakers s ON s.id = ti.asker_speaker_id
+            WHERE {' AND '.join(filters)}
+            ORDER BY random()
+            LIMIT ?
+            """,
+            [*params, row_limit],
+        ).fetchall()
+
+    rows = random_rows(exclude_ids, limit)
+    if len(rows) < limit:
+        selected_ids = [row[0] for row in rows]
+        rows.extend(random_rows(selected_ids, limit - len(rows)))
     return [_public_trivia(_trivia_from_row(row)) for row in rows]
 
 

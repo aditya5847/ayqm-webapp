@@ -54,6 +54,25 @@ def _seed_trivia(episode_id):
     return f"{episode_id}-trivia-0001"
 
 
+def _seed_trivia_count(episode_id, count):
+    items = [
+        SimpleNamespace(
+            model_dump=lambda index=index: {
+                "type": "asked_question",
+                "question": f"Question {index}?",
+                "answer": f"Answer {index}.",
+                "keywords": ["random"],
+                "timestamps": {"start": index, "end": index + 1, "display": str(index)},
+                "speaker_diarization": {},
+                "confidence": "high",
+            }
+        )
+        for index in range(count)
+    ]
+    with get_connection() as conn:
+        save_trivia_items(conn, episode_id, items)
+
+
 def _seed_labeled_trivia(episode_id, speaker_id):
     item = SimpleNamespace(
         model_dump=lambda: {
@@ -195,6 +214,61 @@ def test_public_trivia_excludes_raw_diarization(client):
     assert trivia.status_code == 200
     assert len(trivia.json()) == 1
     assert "speaker_diarization" not in trivia.json()[0]
+
+
+def test_public_episode_archive_is_paginated_without_changing_existing_list(client):
+    speaker = _speaker(client)
+    for number in range(1, 13):
+        response = client.post(
+            "/episodes",
+            data={
+                "episode_title": f"Episode {number}",
+                "episode_number": number,
+                "speaker_ids": json.dumps([speaker["id"]]),
+            },
+            files={"file": (f"episode-{number}.mp3", b"audio", "audio/mpeg")},
+        )
+        episode = response.json()
+        assert client.patch(
+            f"/episodes/{episode['id']}/publication",
+            json={"is_published": True},
+        ).status_code == 200
+
+    first = client.get("/public/episodes/archive?page=1&page_size=10")
+    assert first.status_code == 200
+    assert first.json()["page"] == 1
+    assert first.json()["page_size"] == 10
+    assert first.json()["total_items"] == 12
+    assert first.json()["total_pages"] == 2
+    assert len(first.json()["items"]) == 10
+
+    beyond_last = client.get("/public/episodes/archive?page=99&page_size=10").json()
+    assert beyond_last["page"] == 2
+    assert len(beyond_last["items"]) == 2
+    assert len(client.get("/public/episodes").json()) == 12
+
+
+def test_random_public_trivia_prefers_new_items_and_fills_small_pools(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    _seed_trivia_count(episode["id"], 6)
+    assert client.patch(
+        f"/episodes/{episode['id']}/publication",
+        json={"is_published": True},
+    ).status_code == 200
+
+    first = client.get("/public/trivia/random?limit=4")
+    assert first.status_code == 200
+    first_items = first.json()
+    assert len(first_items) == 4
+    assert len({item["id"] for item in first_items}) == 4
+    assert all("speaker_diarization" not in item for item in first_items)
+
+    params = [("limit", "4"), *(("exclude_id", item["id"]) for item in first_items)]
+    refreshed = client.get("/public/trivia/random", params=params).json()
+    assert len(refreshed) == 4
+    assert len({item["id"] for item in refreshed}) == 4
+    assert len({item["id"] for item in refreshed} - {item["id"] for item in first_items}) == 2
 
 
 def test_manual_asker_survives_remap_and_clears_when_speaker_is_deselected(client):

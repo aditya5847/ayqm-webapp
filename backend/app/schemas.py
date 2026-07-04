@@ -236,6 +236,14 @@ class PublicEpisodeOut(BaseModel):
     trivia_count: int
 
 
+class PublicEpisodePageOut(BaseModel):
+    items: list[PublicEpisodeOut]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
 class WorkerProgress(BaseModel):
     stage: str = Field(min_length=1)
     current: float | None = Field(default=None, ge=0)

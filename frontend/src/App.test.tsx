@@ -11,10 +11,22 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("public experience", () => {
   it("reveals a trivia answer on request", () => {
-    render(<PublicTriviaCard item={triviaItem} number={1} />);
-    expect(screen.queryByText("Mercury")).not.toBeInTheDocument();
+    const { container } = render(<PublicTriviaCard item={triviaItem} />);
+    expect(container.querySelector(".flashcard-back")).toHaveAttribute("aria-hidden", "true");
     fireEvent.click(screen.getByRole("button", { name: "Reveal answer" }));
     expect(screen.getByText("Mercury")).toBeInTheDocument();
+    expect(container.querySelector(".flashcard-front")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector(".flashcard-back")).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByRole("button", { name: "Show question" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Show question" }));
+    expect(screen.getByRole("button", { name: "Reveal answer" })).toHaveFocus();
+  });
+
+  it("only attributes trivia to a mapped speaker", () => {
+    const { rerender } = render(<PublicTriviaCard item={{ ...triviaItem, asker: null }} />);
+    expect(screen.queryByText(/Asked by/)).not.toBeInTheDocument();
+    rerender(<PublicTriviaCard item={triviaItem} />);
+    expect(screen.getByText("Asked by Ada")).toBeInTheDocument();
   });
 
   it("shows a view-specific coming soon state for deferred public endpoints", async () => {
@@ -38,8 +50,63 @@ describe("public experience", () => {
     expect(screen.getByRole("heading", { name: "Meet the hosts" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Vineeth Nair" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Aditya Kashyap" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Vineeth Nair" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Aditya Kashyap" })).toBeInTheDocument();
     expect(screen.getByText("Garry Leavy")).toBeInTheDocument();
     expect(screen.getByText("Berty Ashley")).toBeInTheDocument();
+  });
+
+  it("does not expose admin navigation on the public site", () => {
+    renderApp("/about");
+    expect(screen.queryByRole("link", { name: /admin/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Podcast admin")).not.toBeInTheDocument();
+  });
+
+  it("renders safe episode description HTML without executable markup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = url.endsWith("/trivia") ? [] : {
+        id: "episode-1", episode_title: "Safe episode", episode_number: 1,
+        episode_description: '<p>A <strong>formatted</strong> description.</p><script>alert(1)</script><a href="javascript:alert(1)">Unsafe</a>',
+        published_at: "2026-01-01T00:00:00Z", source_url: null, speakers: [], trivia_count: 0
+      };
+      return jsonResponse(payload);
+    }));
+    const view = renderApp("/episodes/episode-1");
+    expect(await screen.findByText("formatted")).toHaveProperty("tagName", "STRONG");
+    expect(view.container.querySelector("script")).not.toBeInTheDocument();
+    expect(view.container.querySelector('a[href^="javascript:"]')).not.toBeInTheDocument();
+  });
+
+  it("paginates the episode archive through the URL-backed API", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const page = url.includes("page=2") ? 2 : 1;
+      return jsonResponse({
+        items: [publicEpisode(page === 1 ? "episode-1" : "episode-11", page === 1 ? "First page" : "Second page")],
+        page, page_size: 10, total_items: 11, total_pages: 2
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/episodes");
+    expect(await screen.findByText("First page")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Next/ }));
+    expect(await screen.findByText("Second page")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("page=2"), expect.anything());
+  });
+
+  it("refreshes four trivia cards while excluding the current set", async () => {
+    const first = [1, 2, 3, 4].map(index => trivia(`old-${index}`, `Old question ${index}?`));
+    const second = [5, 6, 7, 8].map(index => trivia(`new-${index}`, `New question ${index}?`));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => jsonResponse(String(input).includes("exclude_id") ? second : first));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/trivia");
+    expect(await screen.findAllByRole("heading", { name: /Old question/ })).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Deal four new cards" }));
+    expect(await screen.findAllByRole("heading", { name: /New question/ })).toHaveLength(4);
+    const refreshUrl = String(fetchMock.mock.calls.at(-1)?.[0]);
+    expect(refreshUrl).toContain("exclude_id=old-1");
+    expect(refreshUrl).toContain("exclude_id=old-4");
   });
 });
 
@@ -83,3 +150,19 @@ const triviaItem: TriviaItem = {
   confidence: "high",
   created_at: "2026-01-01T00:00:00Z"
 };
+
+function trivia(id: string, question: string): TriviaItem {
+  return { ...triviaItem, id, question };
+}
+
+function publicEpisode(id: string, title: string) {
+  return {
+    id, episode_title: title, episode_number: 1, episode_kind: "main",
+    episode_description: "Description", published_at: "2026-01-01T00:00:00Z",
+    source_url: null, speakers: [], trivia_count: 0
+  };
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+}

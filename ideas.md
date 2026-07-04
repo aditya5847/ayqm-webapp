@@ -13,3 +13,4 @@ Potential future improvements and wishlist items for AYQM.
 - Remove the visible Admin button from the public UI; administrators can navigate directly to the admin URL.
 - Add a visitor-facing Donate tab for direct financial support.
 - Add a visitor-facing Shop tab for podcast merchandise.
+- Create a visitor-facing page for past Sunday Quizzes, including every episode's Visual Connects and SMAQ content.
