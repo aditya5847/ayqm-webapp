@@ -15,6 +15,7 @@ import type { Episode, Job, JobAccepted, Speaker, SpeakerLabels, TriviaItem, Tri
 import { transcriptScriptBlocks } from "./transcript";
 import { formatDate, formatSeconds, isSpeakerMappingComplete, shouldPollJob, triviaAskerName } from "./workflow";
 import { ComingSoon, ErrorMessage, Loading, Notice, QueryState, RequiredLabel, StatusPill } from "./ui";
+import thumbnailUrl from "../references/Podcast Thumbnail.jpg";
 
 interface EpisodeWorkspaceContext {
   episode: Episode;
@@ -111,16 +112,19 @@ export function EpisodeOverviewTab() {
   return (
     <>
       <section className="workspace-section">
-        <dl className="episode-detail-grid">
-          <Detail label="Title">{episode.episode_title}</Detail>
-          <Detail label="Episode">{episodeLabel(episode)}</Detail>
-          <Detail label="Description" wide>{episode.episode_description || "Not set"}</Detail>
-          <Detail label="Published at">{formatDate(episode.published_at)}</Detail>
-          <Detail label="Speakers">{episode.speakers.map(speaker => speaker.name).join(", ") || "Not set"}</Detail>
-          <Detail label="Source">{episode.source_url ? <a href={episode.source_url} target="_blank" rel="noreferrer">Open episode <ExternalLink size={14} /></a> : "Not set"}</Detail>
-          <Detail label="Created">{formatDate(episode.created_at)}</Detail>
-          <Detail label="Updated">{formatDate(episode.updated_at)}</Detail>
-        </dl>
+        <div className="episode-overview-metadata">
+          <dl className="episode-detail-grid">
+            <Detail label="Title">{episode.episode_title}</Detail>
+            <Detail label="Episode">{episodeLabel(episode)}</Detail>
+            <Detail label="Description" wide>{episode.episode_description || "Not set"}</Detail>
+            <Detail label="Published at">{formatDate(episode.published_at)}</Detail>
+            <Detail label="Speakers">{episode.speakers.map(speaker => speaker.name).join(", ") || "Not set"}</Detail>
+            <Detail label="Source">{episode.source_url ? <a href={episode.source_url} target="_blank" rel="noreferrer">Open episode <ExternalLink size={14} /></a> : "Not set"}</Detail>
+            <Detail label="Created">{formatDate(episode.created_at)}</Detail>
+            <Detail label="Updated">{formatDate(episode.updated_at)}</Detail>
+          </dl>
+          <AdminEpisodeArtwork episode={episode} />
+        </div>
       </section>
       <section className="workspace-section">
         <SectionHeading icon={<FileAudio />} title="Processing" />
@@ -155,6 +159,13 @@ export function EpisodeOverviewTab() {
       </div>}
     </>
   );
+}
+
+function AdminEpisodeArtwork({ episode }: { episode: Episode }) {
+  const [failed, setFailed] = useState(false);
+  const artwork = episode.artwork_url ? apiAssetUrl(`/episodes/${episode.id}/artwork`) : null;
+  useEffect(() => setFailed(false), [artwork]);
+  return <img className="admin-episode-artwork" src={!failed && artwork ? artwork : thumbnailUrl} alt={`${episode.episode_title} artwork`} onError={() => setFailed(true)} />;
 }
 
 export function EpisodeDetailsTab() {
@@ -244,7 +255,7 @@ export function EpisodeTranscriptTab() {
 export function EpisodeTriviaTab() {
   const { episode, episodeId } = useEpisodeWorkspace();
   const trivia = useQuery({ queryKey: ["trivia", episodeId], queryFn: () => getTrivia(episodeId) });
-  return <section className="workspace-section"><SectionHeading title="Extracted trivia" hint={`${episode.trivia_count} items`} /><QueryState query={trivia} empty="No trivia extracted yet.">{items => <div className="admin-trivia-list">{items.map(item => <TriviaItemCard key={item.id} item={item} speakers={episode.speakers} />)}</div>}</QueryState></section>;
+  return <section className="workspace-section"><SectionHeading title="Extracted trivia" hint={episode.trivia_count > 0 ? `${episode.trivia_count} items` : undefined} /><QueryState query={trivia} empty="No trivia extracted yet.">{items => <div className="admin-trivia-list">{items.map(item => <TriviaItemCard key={item.id} item={item} speakers={episode.speakers} />)}</div>}</QueryState></section>;
 }
 
 export function TriviaItemCard({ item, speakers }: { item: TriviaItem; speakers: Speaker[] }) {

@@ -1,7 +1,9 @@
 import hashlib
+import logging
 import re
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from io import BytesIO
 from pathlib import PurePosixPath
 from threading import Thread
 from typing import BinaryIO
@@ -15,6 +17,7 @@ from ..db import get_connection
 from ..repositories import (
     create_job,
     create_rss_episode,
+    get_episode_by_rss_guid,
     get_or_create_speaker_by_name,
     now_utc,
 )
@@ -23,6 +26,8 @@ from ..storage import get_object_storage
 
 ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 HOST_NAMES = ("Vineeth Nair", "Aditya Kashyap")
+MAX_ARTWORK_BYTES = 10 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 class HashingReader:
@@ -83,6 +88,8 @@ def parse_feed(payload: bytes) -> list[dict]:
         published_raw = node.findtext("pubDate")
         published_at = parsedate_to_datetime(published_raw).astimezone(UTC).replace(tzinfo=None) if published_raw else None
         size = enclosure.get("length") if enclosure is not None else None
+        image = node.find(f"{{{ITUNES_NS}}}image")
+        artwork_url = image.get("href", "").strip() if image is not None else ""
         items.append(
             {
                 "rss_guid": guid,
@@ -95,6 +102,7 @@ def parse_feed(payload: bytes) -> list[dict]:
                 "content_type": enclosure.get("type") if enclosure is not None else None,
                 "size_bytes": int(size) if size and size.isdigit() else None,
                 "duration_seconds": parse_duration(node.findtext(f"{{{ITUNES_NS}}}duration")),
+                "rss_artwork_url": artwork_url or None,
                 "extra_metadata": {"rss_guid": guid, "episode_kind": kind},
             }
         )
@@ -116,6 +124,60 @@ def audio_object_key(item: dict) -> str:
         suffix = ".mp3"
     safe_guid = re.sub(r"[^A-Za-z0-9._-]", "-", item["rss_guid"])
     return f"episodes/{safe_guid}/source{suffix}"
+
+
+def artwork_object_key(item: dict) -> str:
+    safe_guid = re.sub(r"[^A-Za-z0-9._-]", "-", item["rss_guid"])
+    return f"episodes/{safe_guid}/artwork"
+
+
+def import_episode_artwork(item: dict, storage, existing: dict | None) -> dict:
+    source_url = item.get("rss_artwork_url")
+    if not source_url:
+        return {
+            "rss_artwork_url": existing.get("rss_artwork_url") if existing else None,
+            "artwork_object_key": existing.get("artwork_object_key") if existing else None,
+            "artwork_content_type": existing.get("artwork_content_type") if existing else None,
+            "artwork_size_bytes": existing.get("artwork_size_bytes") if existing else None,
+        }
+    if urlparse(source_url).scheme not in {"http", "https"}:
+        raise ValueError("RSS artwork URL must use HTTP or HTTPS")
+
+    key = artwork_object_key(item)
+    existing_key = existing.get("artwork_object_key") if existing else None
+    existing_source = existing.get("rss_artwork_url") if existing else None
+    if existing_key and existing_source == source_url:
+        metadata = storage.head(existing_key)
+        if metadata is not None:
+            return {
+                "rss_artwork_url": source_url,
+                "artwork_object_key": existing_key,
+                "artwork_content_type": metadata.get("content_type") or existing.get("artwork_content_type"),
+                "artwork_size_bytes": metadata.get("size") or existing.get("artwork_size_bytes"),
+            }
+
+    request = Request(
+        source_url,
+        headers={"User-Agent": "AYQM-Webapp/1.0 (+https://github.com/aditya5847/ayqm-webapp)"},
+    )
+    with urlopen(request, timeout=60) as response:
+        content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if not content_type.startswith("image/"):
+            raise ValueError(f"RSS artwork is not an image: {content_type or 'unknown content type'}")
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > MAX_ARTWORK_BYTES:
+            raise ValueError(f"Artwork exceeds {MAX_ARTWORK_BYTES} bytes")
+        payload = response.read(MAX_ARTWORK_BYTES + 1)
+        if len(payload) > MAX_ARTWORK_BYTES:
+            raise ValueError(f"Artwork exceeds {MAX_ARTWORK_BYTES} bytes")
+        reader = HashingReader(BytesIO(payload))
+        stored = storage.put_stream(key, reader, content_type)
+    return {
+        "rss_artwork_url": source_url,
+        "artwork_object_key": key,
+        "artwork_content_type": stored.get("content_type") or content_type,
+        "artwork_size_bytes": stored.get("size") or reader.size,
+    }
 
 
 def create_feed_import(feed_url: str, dry_run: bool) -> dict:
@@ -194,6 +256,8 @@ def run_feed_import(import_id: str, settings: Settings) -> None:
         imported = skipped = failed = 0
         for item in items:
             try:
+                with get_connection() as conn:
+                    existing = get_episode_by_rss_guid(conn, item["rss_guid"])
                 key = audio_object_key(item)
                 item["object_key"] = key
                 object_metadata = storage.head(key)
@@ -209,6 +273,19 @@ def run_feed_import(import_id: str, settings: Settings) -> None:
                         item["audio_sha256"] = stored.get("sha256") or reader.sha256
                 else:
                     item["size_bytes"] = object_metadata.get("size") or item.get("size_bytes")
+                try:
+                    item.update(import_episode_artwork(item, storage, existing))
+                except Exception:
+                    logger.warning("Episode artwork import failed for RSS GUID %s", item["rss_guid"], exc_info=True)
+                    if existing:
+                        item.update(
+                            {
+                                "rss_artwork_url": existing.get("rss_artwork_url"),
+                                "artwork_object_key": existing.get("artwork_object_key"),
+                                "artwork_content_type": existing.get("artwork_content_type"),
+                                "artwork_size_bytes": existing.get("artwork_size_bytes"),
+                            }
+                        )
                 with get_connection() as conn:
                     episode, created = create_rss_episode(conn, item, host_ids)
                     if item.get("audio_sha256"):

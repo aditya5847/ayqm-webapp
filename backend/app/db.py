@@ -55,7 +55,11 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                     audio_sha256 VARCHAR,
                     audio_size_bytes BIGINT,
                     duration_seconds DOUBLE,
-                    rss_imported_at TIMESTAMP
+                    rss_imported_at TIMESTAMP,
+                    rss_artwork_url VARCHAR,
+                    artwork_object_key VARCHAR,
+                    artwork_content_type VARCHAR,
+                    artwork_size_bytes BIGINT
                 )
                 """
             )
@@ -221,6 +225,10 @@ def _migrate_production_columns(conn: DuckDBPyConnection) -> None:
     _ensure_column(conn, "episodes", "audio_size_bytes", "BIGINT")
     _ensure_column(conn, "episodes", "duration_seconds", "DOUBLE")
     _ensure_column(conn, "episodes", "rss_imported_at", "TIMESTAMP")
+    _ensure_column(conn, "episodes", "rss_artwork_url", "VARCHAR")
+    _ensure_column(conn, "episodes", "artwork_object_key", "VARCHAR")
+    _ensure_column(conn, "episodes", "artwork_content_type", "VARCHAR")
+    _ensure_column(conn, "episodes", "artwork_size_bytes", "BIGINT")
 
 
 def _migrate_job_columns(conn: DuckDBPyConnection) -> None:
