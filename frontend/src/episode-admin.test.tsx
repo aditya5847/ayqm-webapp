@@ -17,6 +17,7 @@ describe("episode workspace routing", () => {
     expect((await screen.findAllByText("Episode 12")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("heading", { name: "Episode overview" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("link", { name: "Overview" })).toHaveClass("active"));
+    expect(await screen.findByRole("img", { name: "A test episode artwork" })).toHaveAttribute("src", "/references/Podcast%20Thumbnail.jpg");
     expect(screen.queryByRole("button", { name: "Save details" })).not.toBeInTheDocument();
   });
 
@@ -29,6 +30,13 @@ describe("episode workspace routing", () => {
     expect(screen.getByRole("textbox", { name: /Episode title/ })).toHaveValue("A test episode");
     expect(screen.getByRole("button", { name: "Save details" })).toBeInTheDocument();
     expect(screen.queryByText("Publish this episode")).not.toBeInTheDocument();
+  });
+
+  it("shows imported artwork from the authenticated endpoint on Overview", async () => {
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: { ...episode, artwork_url: "/public/episodes/episode-1/artwork" } })));
+    renderApp("/admin/episodes/episode-1/overview");
+
+    expect(await screen.findByRole("img", { name: "A test episode artwork" })).toHaveAttribute("src", "/api/episodes/episode-1/artwork");
   });
 
   it("publishes from Overview and keeps actions in workflow order", async () => {
@@ -65,6 +73,44 @@ describe("episode workspace routing", () => {
     expect(processingGrid?.querySelector('a[href="/admin/episodes/episode-1/trivia"]')).toBeInTheDocument();
     expect(screen.getByLabelText("1 trivia item")).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Transcribe" })).not.toHaveClass("primary");
+  });
+
+  it("hides zero trivia counts in the overview", async () => {
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: { ...episode, trivia_count: 0 } })));
+    renderApp("/admin/episodes/episode-1/overview");
+
+    expect(await screen.findByText("Trivia extraction")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/trivia item/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("0 items")).not.toBeInTheDocument();
+  });
+
+  it("hides zero trivia counts in the episodes table", async () => {
+    const listEpisode = { ...episode, trivia_count: 0 };
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: listEpisode, episodes: [listEpisode] })));
+    renderApp("/admin/episodes");
+
+    expect(await screen.findByRole("link", { name: /A test episode/ })).toBeInTheDocument();
+    expect(screen.queryByText("0", { selector: ".count" })).not.toBeInTheDocument();
+  });
+
+  it("paginates the episodes table at 30 items per page", async () => {
+    const firstPage = Array.from({ length: 30 }, (_, index) => ({ ...episode, id: `episode-${index + 1}`, episode_number: index + 1, episode_title: `Episode ${index + 1}` }));
+    const secondPage = [{ ...episode, id: "episode-31", episode_number: 31, episode_title: "Episode 31" }];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/session")) return json({ authenticated: true });
+      if (url.includes("/episodes?page=2&page_size=30")) return json({ items: secondPage, page: 2, page_size: 30, total_items: 31, total_pages: 2 });
+      if (url.includes("/episodes?page=1&page_size=30")) return json({ items: firstPage, page: 1, page_size: 30, total_items: 31, total_pages: 2 });
+      return json({ detail: "Not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/admin/episodes");
+
+    expect(await screen.findByRole("link", { name: /#1 Episode 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Next/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Next/ }));
+    expect(await screen.findByRole("link", { name: /#31 Episode 31/ })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("page=2"), expect.anything());
   });
 
   it("disables processing, publication, and deletion actions while a job is active", async () => {
@@ -152,7 +198,7 @@ describe("trivia editing", () => {
   });
 });
 
-function requestRouter(data: { episode: Episode; speakers?: Episode["speakers"]; transcript?: Record<string, unknown>; mappings?: Record<string, Episode["speakers"][number]> }) {
+function requestRouter(data: { episode: Episode; episodes?: Episode[]; speakers?: Episode["speakers"]; transcript?: Record<string, unknown>; mappings?: Record<string, Episode["speakers"][number]> }) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/auth/session")) return json({ authenticated: true });
@@ -167,7 +213,15 @@ function requestRouter(data: { episode: Episode; speakers?: Episode["speakers"];
     });
     if (url.endsWith("/episodes/episode-1/speaker-mapping")) return json({ episode_id: "episode-1", mappings: data.mappings ?? {} });
     if (url.endsWith("/episodes/episode-1")) return json(data.episode);
-    if (url.endsWith("/episodes")) return json([]);
+    if (url.includes("/episodes?") || url.endsWith("/episodes")) {
+      return json({
+        items: data.episodes ?? [data.episode],
+        page: 1,
+        page_size: 30,
+        total_items: data.episodes?.length ?? 1,
+        total_pages: 1
+      });
+    }
     if (url.endsWith("/speakers")) return json(data.speakers ?? []);
     if (url.endsWith("/jobs/job-1")) return json(data.episode.active_job);
     return json({ detail: "Not found" }, 404);

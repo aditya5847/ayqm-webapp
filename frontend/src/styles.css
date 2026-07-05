@@ -78,14 +78,18 @@ h1, h2, h3 { overflow-wrap: anywhere; }
   background: var(--yellow);
   border-bottom: 3px solid var(--ink);
   display: grid;
-  grid-template-columns: minmax(300px, 45%) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 40%) minmax(0, 1fr);
   margin: 0 auto;
   min-height: min(680px, calc(100vh - 84px));
   overflow: hidden;
 }
 .hero-art { align-items: center; background: var(--cyan); border-right: 3px solid var(--ink); display: flex; justify-content: center; padding: clamp(24px, 5vw, 72px); }
-.hero-art img { border: 3px solid var(--ink); box-shadow: 12px 12px 0 var(--red); width: min(100%, 520px); }
-.hero-copy { align-self: center; max-width: 690px; padding: clamp(36px, 7vw, 100px); }
+.hero-cover-stack { position: relative; width: min(86%, 430px); }
+.hero-podcast-cover { border: 3px solid var(--ink); box-shadow: 12px 12px 0 var(--red); width: 100%; }
+.hero-episode-cover { bottom: -30px; position: absolute; right: -28px; width: clamp(125px, 42%, 205px); z-index: 1; }
+.hero-episode-cover span { background: var(--yellow); border: 2px solid var(--ink); display: inline-block; font-size: 10px; font-weight: 900; left: -8px; padding: 5px 7px; position: absolute; text-transform: uppercase; top: -15px; transform: rotate(-2deg); z-index: 2; }
+.hero-episode-cover img { aspect-ratio: 1; border: 3px solid var(--ink); box-shadow: 8px 8px 0 var(--yellow); object-fit: cover; width: 100%; }
+.hero-copy { align-self: center; max-width: 760px; padding: clamp(36px, 7vw, 100px); }
 .hero-copy .comic-kicker { background: #fff; border: 2px solid var(--ink); display: inline-block; padding: 6px 9px; transform: rotate(-1deg); }
 .hero-copy h1, .public-page-title h1, .episode-masthead h1 {
   font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
@@ -286,6 +290,8 @@ h1, h2, h3 { overflow-wrap: anywhere; }
 .episode-tab-panel { padding-top: 25px; }
 .workspace-section + .workspace-section { border-top: 1px solid #c9c8c2; margin-top: 34px; padding-top: 20px; }
 .episode-detail-grid { display: grid; gap: 22px 36px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; max-width: 960px; }
+.episode-overview-metadata { align-items: start; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) 140px; max-width: 960px; }
+.admin-episode-artwork { aspect-ratio: 1; border: 2px solid var(--ink); object-fit: cover; width: 140px; }
 .detail-item { display: grid; gap: 7px; padding: 0; }
 .detail-item.wide { grid-column: 1 / -1; }
 .detail-item dt { color: #716d66; font-size: 10px; font-weight: 900; text-transform: uppercase; }
@@ -390,7 +396,7 @@ audio { max-width: 100%; width: 100%; }
   .menu-button { align-items: center; display: flex; justify-content: center; }
   .public-nav { background: #fff; border-bottom: 3px solid var(--ink); display: none; left: 0; padding: 18px; position: absolute; right: 0; top: 70px; }
   .public-nav.open { display: grid; }
-  .home-hero { grid-template-columns: 42% minmax(0, 1fr); min-height: 580px; }
+  .home-hero { grid-template-columns: 38% minmax(0, 1fr); min-height: 580px; }
   .hero-copy { padding: 40px; }
   .episode-strip { gap: 16px; }
   .admin-shell { grid-template-columns: 190px minmax(0, 1fr); }
@@ -400,7 +406,10 @@ audio { max-width: 100%; width: 100%; }
 @media (max-width: 680px) {
   .home-hero { grid-template-columns: 1fr; }
   .hero-art { border-bottom: 3px solid var(--ink); border-right: 0; padding: 28px; }
-  .hero-art img { box-shadow: 8px 8px 0 var(--red); max-width: 320px; }
+  .hero-cover-stack { margin: 4px 24px 22px 0; width: min(76%, 290px); }
+  .hero-podcast-cover { box-shadow: 8px 8px 0 var(--red); }
+  .hero-episode-cover { bottom: -20px; right: -32px; width: clamp(105px, 42%, 135px); }
+  .hero-episode-cover img { box-shadow: 6px 6px 0 var(--yellow); }
   .hero-copy { padding: 38px 24px 48px; }
   .hero-copy h1 { font-size: 58px; }
   .public-content { padding-left: 18px; padding-right: 18px; }
@@ -438,6 +447,8 @@ audio { max-width: 100%; width: 100%; }
   .episode-workspace-heading h1 { font-size: 27px; }
   .episode-tabs { margin-left: -16px; margin-right: -16px; padding-left: 12px; }
   .episode-detail-grid { grid-template-columns: 1fr; }
+  .episode-overview-metadata { grid-template-columns: minmax(0, 1fr) 90px; }
+  .admin-episode-artwork { width: 90px; }
   .detail-item.wide { grid-column: auto; }
   .transcript-heading { align-items: start; display: grid; }
   .script-block { grid-template-columns: 1fr; }

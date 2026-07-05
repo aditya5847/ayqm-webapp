@@ -109,6 +109,7 @@ class EpisodeOut(BaseModel):
     duration_seconds: float | None = None
     rss_guid: str | None = None
     rss_enclosure_url: str | None = None
+    artwork_url: str | None = None
     transcript_status: str
     trivia_status: str
     trivia_count: int
@@ -116,6 +117,14 @@ class EpisodeOut(BaseModel):
     active_job: JobOut | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class EpisodePageOut(BaseModel):
+    items: list[EpisodeOut]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
 
 
 class JobAccepted(BaseModel):
@@ -232,6 +241,7 @@ class PublicEpisodeOut(BaseModel):
     episode_description: str | None = None
     published_at: datetime | None = None
     source_url: str | None = None
+    artwork_url: str | None = None
     speakers: list[SpeakerOut] = Field(default_factory=list)
     trivia_count: int
 

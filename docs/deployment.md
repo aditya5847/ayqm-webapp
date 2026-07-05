@@ -76,7 +76,8 @@ The registrar still owns and renews the domain; only DNS resolution moves.
 2. Run **Import feed**. The importer reads the configured Anchor RSS feed,
    processes oldest first, and copies each enclosure to private R2 storage.
 3. Re-running the import is safe: RSS GUID is unique, existing objects are not
-   downloaded again, and manual titles/descriptions are not overwritten.
+   downloaded again, manual titles/descriptions are not overwritten, and
+   missing or changed per-episode artwork is copied into R2.
 4. For the measured feed baseline, verify 148 records, Episodes 1 through 143,
    four mini episodes, one announcement, and about 11.55 GB of source audio.
    Use the live feed's higher count if new episodes have appeared.
