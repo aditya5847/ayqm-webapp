@@ -1,6 +1,7 @@
 import type {
   AdminSession,
   DirectUploadTicket,
+  AdminEpisodePage,
   Episode,
   EpisodeUpdateInput,
   EpisodeUploadInput,
@@ -81,8 +82,8 @@ export async function deleteSpeaker(speakerId: string): Promise<void> {
   await request<void>(`/speakers/${speakerId}`, { method: "DELETE" });
 }
 
-export async function listEpisodes(): Promise<Episode[]> {
-  return request<Episode[]>("/episodes");
+export async function listEpisodes(page = 1, pageSize = 30): Promise<AdminEpisodePage> {
+  return request<AdminEpisodePage>(`/episodes?page=${page}&page_size=${pageSize}`);
 }
 
 export async function listPublicEpisodes(): Promise<PublicEpisode[]> {

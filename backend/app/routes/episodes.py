@@ -4,7 +4,7 @@ import shutil
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
@@ -19,7 +19,7 @@ from ..repositories import (
     get_episode,
     get_speaker_mapping,
     get_transcript,
-    list_episodes,
+    list_episodes_page,
     list_trivia_items,
     missing_speaker_ids,
     replace_speaker_mapping,
@@ -30,6 +30,7 @@ from ..repositories import (
 )
 from ..schemas import (
     EpisodeMetadata,
+    EpisodePageOut,
     EpisodeOut,
     EpisodePublicationUpdate,
     EpisodeUpdate,
@@ -47,6 +48,7 @@ from ..schemas import (
     TriviaItemOut,
 )
 from ..services.speaker_labels import ensure_sample_clip, sanitize_label, speaker_labels_from_transcript, summarize_speaker_labels
+from ..services.artwork import episode_artwork_response
 from ..workers import extract_trivia_job, process_episode_job, transcribe_episode_job
 from ..storage import get_object_storage
 
@@ -288,15 +290,23 @@ def complete_direct_upload(episode_id: str, request: DirectUploadComplete) -> di
     return updated
 
 
-@router.get("", response_model=list[EpisodeOut])
-def get_episodes() -> list[dict]:
+@router.get("", response_model=EpisodePageOut)
+def get_episodes(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=30, ge=1, le=100),
+) -> dict:
     with get_connection() as conn:
-        return list_episodes(conn)
+        return list_episodes_page(conn, page=page, page_size=page_size)
 
 
 @router.get("/{episode_id}", response_model=EpisodeOut)
 def get_episode_detail(episode_id: str) -> dict:
     return _require_episode(episode_id)
+
+
+@router.get("/{episode_id}/artwork", response_model=None)
+def get_episode_artwork(episode_id: str):
+    return episode_artwork_response(_require_episode(episode_id), get_settings())
 
 
 @router.patch("/{episode_id}", response_model=EpisodeOut)
@@ -338,6 +348,8 @@ def delete_episode_detail(episode_id: str) -> None:
             storage = get_object_storage(settings)
             if episode.get("audio_object_key"):
                 storage.delete_object(episode["audio_object_key"])
+            if episode.get("artwork_object_key"):
+                storage.delete_object(episode["artwork_object_key"])
             for artifact_key in artifact_keys:
                 storage.delete_object(artifact_key)
             storage.delete_prefix(f"artifacts/{episode_id}/")

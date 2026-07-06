@@ -14,4 +14,3 @@ Potential future improvements and wishlist items for AYQM.
 - Create a visitor-facing page for past Sunday Quizzes, including every episode's Visual Connects and SMAQ content.
 - Search feature on Trivia
 - Build an audio player on the website itself
-

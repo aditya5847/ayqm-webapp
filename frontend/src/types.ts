@@ -20,6 +20,7 @@ export interface Episode {
   episode_description: string | null;
   published_at: string | null;
   source_url: string | null;
+  artwork_url?: string | null;
   extra_metadata: Record<string, unknown>;
   speakers: Speaker[];
   audio_path: string;
@@ -38,6 +39,14 @@ export interface Episode {
   updated_at: string;
 }
 
+export interface AdminEpisodePage {
+  items: Episode[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
 export interface PublicEpisode {
   id: string;
   episode_title: string;
@@ -46,6 +55,7 @@ export interface PublicEpisode {
   episode_description: string | null;
   published_at: string | null;
   source_url: string | null;
+  artwork_url: string | null;
   speakers: Speaker[];
   trivia_count: number;
 }

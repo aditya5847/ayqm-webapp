@@ -88,13 +88,26 @@ describe("public experience", () => {
     expect(screen.queryByText("Podcast admin")).not.toBeInTheDocument();
   });
 
+  it("layers latest episode artwork over the podcast artwork and removes a failed overlay", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => jsonResponse(String(input).includes("/public/trivia") ? [] : [publicEpisode("episode-1", "Latest show")])));
+    renderApp("/");
+
+    expect(screen.getByRole("img", { name: "Are You Quizzing Me podcast artwork" })).toBeInTheDocument();
+    const episodeArtwork = await screen.findByRole("img", { name: "Latest show artwork" });
+    expect(screen.getByText("Latest episode")).toBeInTheDocument();
+    fireEvent.error(episodeArtwork);
+    expect(screen.queryByRole("img", { name: "Latest show artwork" })).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Are You Quizzing Me podcast artwork" })).toBeInTheDocument();
+  });
+
   it("renders safe episode description HTML without executable markup", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const payload = url.endsWith("/trivia") ? [] : {
         id: "episode-1", episode_title: "Safe episode", episode_number: 1,
         episode_description: '<p>A <strong>formatted</strong> description.</p><script>alert(1)</script><a href="javascript:alert(1)">Unsafe</a>',
-        published_at: "2026-01-01T00:00:00Z", source_url: null, speakers: [], trivia_count: 0
+        published_at: "2026-01-01T00:00:00Z", source_url: null,
+        artwork_url: "/public/episodes/episode-1/artwork", speakers: [], trivia_count: 0
       };
       return jsonResponse(payload);
     }));
@@ -102,6 +115,28 @@ describe("public experience", () => {
     expect(await screen.findByText("formatted")).toHaveProperty("tagName", "STRONG");
     expect(view.container.querySelector("script")).not.toBeInTheDocument();
     expect(view.container.querySelector('a[href^="javascript:"]')).not.toBeInTheDocument();
+    const artwork = screen.getByRole("img", { name: "Safe episode artwork" });
+    expect(artwork).toHaveAttribute("src", "/api/public/episodes/episode-1/artwork");
+    fireEvent.error(artwork);
+    expect(artwork.getAttribute("src")).toContain("Podcast%20Thumbnail.jpg");
+  });
+
+  it("hides the contact footer from rendered episode descriptions", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = url.endsWith("/trivia") ? [] : {
+        id: "episode-1", episode_title: "Footer episode", episode_number: 1,
+        episode_description: "<p>Main episode copy.</p><p>You can reach us at <a href=\"mailto:hello@example.com\">hello@example.com</a></p><p><a href=\"https://www.instagram.com/areyouquizzingme/\">Instagram</a></p>",
+        published_at: "2026-01-01T00:00:00Z", source_url: null,
+        artwork_url: "/public/episodes/episode-1/artwork", speakers: [], trivia_count: 0
+      };
+      return jsonResponse(payload);
+    }));
+    renderApp("/episodes/episode-1");
+    expect(await screen.findByText("Main episode copy.")).toBeInTheDocument();
+    expect(screen.queryByText(/You can reach us at/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Instagram")).not.toBeInTheDocument();
+    expect(screen.queryByText("hello@example.com")).not.toBeInTheDocument();
   });
 
   it("paginates the episode archive through the URL-backed API", async () => {
@@ -185,7 +220,7 @@ function publicEpisode(id: string, title: string, episodeNumber = 1, speakers: s
   return {
     id, episode_title: title, episode_number: episodeNumber, episode_kind: "main",
     episode_description: "Description", published_at: "2026-01-01T00:00:00Z",
-    source_url: null, speakers: speakers.map(name => ({ id: name.toLowerCase().replace(/\s+/g, "-"), name })), trivia_count: 0
+    source_url: null, artwork_url: `/public/episodes/${id}/artwork`, speakers: speakers.map(name => ({ id: name.toLowerCase().replace(/\s+/g, "-"), trivia_count: 0
   };
 }
 

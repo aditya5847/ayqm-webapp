@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from datetime import timedelta
+from io import BytesIO
 from pathlib import Path
 
 import duckdb
@@ -16,7 +17,12 @@ from backend.app.repositories import (
     now_utc,
 )
 from backend.app.services.backups import create_database_backup
-from backend.app.services.rss_import import classify_episode, ensure_transcription_job, parse_feed
+from backend.app.services.rss_import import (
+    classify_episode,
+    ensure_transcription_job,
+    import_episode_artwork,
+    parse_feed,
+)
 from backend.app.storage import LocalObjectStorage, R2ObjectStorage
 
 
@@ -27,6 +33,7 @@ RSS_FIXTURE = b"""<?xml version="1.0"?>
       <pubDate>Wed, 04 Jan 2023 21:30:06 GMT</pubDate>
       <description>Main episode</description><itunes:episode>1</itunes:episode>
       <itunes:duration>01:02:03</itunes:duration>
+      <itunes:image href="https://example.com/main.jpg" />
       <enclosure url="https://example.com/main.mp3" length="100" type="audio/mpeg" />
     </item>
     <item><title>Mini Episode 001 - JFK</title><guid>mini-1</guid>
@@ -51,7 +58,49 @@ def test_rss_parser_distinguishes_main_mini_and_announcement():
         ("announcement", None),
     ]
     assert items[0]["duration_seconds"] == 3723
+    assert items[0]["rss_artwork_url"] == "https://example.com/main.jpg"
+    assert items[1]["rss_artwork_url"] is None
     assert classify_episode("Something else", None) == ("announcement", None)
+
+
+def test_episode_artwork_import_is_idempotent_and_replaces_changed_source(tmp_path, monkeypatch):
+    from backend.app.services import rss_import
+
+    class ImageResponse(BytesIO):
+        def __init__(self, payload: bytes):
+            super().__init__(payload)
+            self.headers = {"Content-Type": "image/jpeg", "Content-Length": str(len(payload))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.close()
+
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        return ImageResponse(b"first image" if request.full_url.endswith("main.jpg") else b"replacement")
+
+    monkeypatch.setattr(rss_import, "urlopen", fake_urlopen)
+    storage = LocalObjectStorage(tmp_path)
+    item = parse_feed(RSS_FIXTURE)[0]
+
+    first = import_episode_artwork(item, storage, None)
+    existing = first.copy()
+    second = import_episode_artwork(item, storage, existing)
+    changed = import_episode_artwork(item | {"rss_artwork_url": "https://example.com/replacement.jpg"}, storage, existing)
+
+    assert first["artwork_object_key"] == "episodes/main-1/artwork"
+    assert first["artwork_size_bytes"] == len(b"first image")
+    assert second["artwork_object_key"] == first["artwork_object_key"]
+    assert changed["rss_artwork_url"] == "https://example.com/replacement.jpg"
+    assert (tmp_path / "episodes/main-1/artwork").read_bytes() == b"replacement"
+    assert [url for url, _timeout in calls] == [
+        "https://example.com/main.jpg",
+        "https://example.com/replacement.jpg",
+    ]
 
 
 def test_rss_guid_is_idempotent_and_announcements_allow_null_number(tmp_path, monkeypatch):

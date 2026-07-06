@@ -1,14 +1,14 @@
-import { FormEvent, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Trash2, Upload, Users } from "lucide-react";
-import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ArrowRight, ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Trash2, Upload, Users } from "lucide-react";
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   createSpeaker, deleteSpeaker, getAdminSession, getRssImport, isUnsupportedFeature,
   listEpisodes, listSpeakers, loginAdmin, logoutAdmin, startRssImport, updateSpeaker, uploadEpisode
 } from "./api";
 import type { Episode, FeedImport, Speaker } from "./types";
 import { formatDate } from "./workflow";
-import { ComingSoon, ErrorMessage, Loading, QueryState, RequiredLabel, StatusPill } from "./ui";
+import { ComingSoon, ErrorMessage, Loading, Notice, QueryState, RequiredLabel, StatusPill } from "./ui";
 import logoUrl from "../references/Logo.png";
 
 export function AdminGate() {
@@ -58,8 +58,21 @@ export function RssImportPage() {
 }
 
 export function AdminEpisodesPage() {
-  const episodes = useQuery({ queryKey: ["episodes"], queryFn: listEpisodes });
-  return <AdminPage title="Episodes" actions={<Link className="button primary" to="/admin/episodes/new"><Upload size={16} />Upload episode</Link>}><QueryState query={episodes} empty="No episodes uploaded yet.">{items => <div className="table-wrap"><table><thead><tr><th>Episode</th><th>Website visibility</th><th>Transcript</th><th>Trivia</th><th>Updated</th></tr></thead><tbody>{items.map(episode => <tr key={episode.id}><td><Link className="row-title" to={`/admin/episodes/${episode.id}`}>{episodeLabel(episode)} {episode.episode_title}</Link><div className="muted clamp">{episode.episode_description}</div></td><td><StatusPill value={episode.is_published ? "visible" : "hidden"} /></td><td><StatusPill value={episode.transcript_status} /></td><td><StatusPill value={episode.trivia_status} /> <span className="count">{episode.trivia_count}</span></td><td>{formatDate(episode.updated_at)}</td></tr>)}</tbody></table></div>}</QueryState></AdminPage>;
+  const pageSize = 30;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pageParam = searchParams.get("page");
+  const requestedPage = positivePage(pageParam);
+  const episodes = useQuery({
+    queryKey: ["episodes", requestedPage],
+    queryFn: () => listEpisodes(requestedPage, pageSize),
+    placeholderData: keepPreviousData
+  });
+  useEffect(() => {
+    if (!episodes.isPlaceholderData && episodes.data && (episodes.data.page !== requestedPage || (episodes.data.page === 1 && pageParam !== null))) {
+      setSearchParams(episodes.data.page > 1 ? { page: String(episodes.data.page) } : {}, { replace: true });
+    }
+  }, [episodes.data, episodes.isPlaceholderData, pageParam, requestedPage, setSearchParams]);
+  return <AdminPage title="Episodes" actions={<Link className="button primary" to="/admin/episodes/new"><Upload size={16} />Upload episode</Link>}><QueryState query={episodes} feature="The episode list">{items => items.items.length ? <><div className="table-wrap"><table><thead><tr><th>Episode</th><th>Website visibility</th><th>Transcript</th><th>Trivia</th><th>Updated</th></tr></thead><tbody>{items.items.map(episode => <tr key={episode.id}><td><Link className="row-title" to={`/admin/episodes/${episode.id}`}>{episodeLabel(episode)} {episode.episode_title}</Link><div className="muted clamp">{episode.episode_description}</div></td><td><StatusPill value={episode.is_published ? "visible" : "hidden"} /></td><td><StatusPill value={episode.transcript_status} /></td><td><StatusPill value={episode.trivia_status} />{episode.trivia_count > 0 && <span className="count">{episode.trivia_count}</span>}</td><td>{formatDate(episode.updated_at)}</td></tr>)}</tbody></table></div><EpisodePagination page={items.page} totalPages={items.total_pages} setSearchParams={setSearchParams} /></> : <Notice>No episodes uploaded yet.</Notice>}</QueryState></AdminPage>;
 }
 
 export function UploadPage() {
@@ -108,4 +121,26 @@ function episodeLabel(episode: Episode): string {
   if (episode.episode_kind === "announcement") return "Announcement";
   if (episode.episode_kind === "mini") return `Mini #${episode.episode_number}`;
   return `#${episode.episode_number}`;
+}
+
+function positivePage(value: string | null): number {
+  const page = Number(value);
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+function EpisodePagination({ page, totalPages, setSearchParams }: { page: number; totalPages: number; setSearchParams: ReturnType<typeof useSearchParams>[1] }) {
+  if (totalPages <= 1) return null;
+  const pages = paginationPages(page, totalPages);
+  const goToPage = (nextPage: number) => setSearchParams(nextPage > 1 ? { page: String(nextPage) } : {});
+  return <nav className="pagination" aria-label="Episode pages">
+    <button type="button" onClick={() => goToPage(page - 1)} disabled={page === 1}><ArrowLeft size={16} />Previous</button>
+    <div className="pagination-pages">{pages.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} aria-hidden="true">…</span> : <button key={item} type="button" aria-current={item === page ? "page" : undefined} onClick={() => goToPage(item)}>{item}</button>)}</div>
+    <button type="button" onClick={() => goToPage(page + 1)} disabled={page === totalPages}>Next<ArrowRight size={16} /></button>
+  </nav>;
+}
+
+function paginationPages(page: number, totalPages: number): Array<number | "ellipsis"> {
+  const visible = new Set([1, totalPages, page - 1, page, page + 1].filter(item => item >= 1 && item <= totalPages));
+  const ordered = [...visible].sort((a, b) => a - b);
+  return ordered.flatMap((item, index) => index > 0 && item - ordered[index - 1] > 1 ? ["ellipsis", item] : [item]);
 }

@@ -141,6 +141,61 @@ def test_episode_update_and_public_data_isolation(client):
     assert "is_published" not in payload
 
 
+def test_admin_episode_list_is_paginated(client):
+    speaker = _speaker(client)
+    for index in range(31):
+        _episode(client, [speaker["id"]])
+
+    first = client.get("/episodes?page=1&page_size=30")
+    assert first.status_code == 200
+    payload = first.json()
+    assert payload["page"] == 1
+    assert payload["page_size"] == 30
+    assert payload["total_items"] == 31
+    assert payload["total_pages"] == 2
+    assert len(payload["items"]) == 30
+
+    second = client.get("/episodes?page=2&page_size=30")
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["page"] == 2
+    assert payload["page_size"] == 30
+    assert payload["total_items"] == 31
+    assert payload["total_pages"] == 2
+    assert len(payload["items"]) == 1
+
+
+def test_public_episode_artwork_is_publication_gated_and_served_locally(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    settings = get_settings()
+    artwork_key = f"episodes/{episode['id']}/artwork"
+    artwork_path = settings.upload_root / artwork_key
+    artwork_path.parent.mkdir(parents=True, exist_ok=True)
+    artwork_path.write_bytes(b"episode artwork")
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE episodes SET rss_artwork_url = ?, artwork_object_key = ?,
+                      artwork_content_type = ?, artwork_size_bytes = ? WHERE id = ?""",
+            ["https://example.com/artwork.jpg", artwork_key, "image/jpeg", len(b"episode artwork"), episode["id"]],
+        )
+
+    admin_artwork = client.get(f"/episodes/{episode['id']}/artwork")
+    assert admin_artwork.status_code == 200
+    assert admin_artwork.content == b"episode artwork"
+    assert client.get(f"/public/episodes/{episode['id']}/artwork").status_code == 404
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True}).status_code == 200
+
+    public_episode = client.get(f"/public/episodes/{episode['id']}").json()
+    assert public_episode["artwork_url"] == f"/public/episodes/{episode['id']}/artwork"
+    assert "artwork_object_key" not in public_episode
+    assert "rss_artwork_url" not in public_episode
+    artwork = client.get(public_episode["artwork_url"])
+    assert artwork.status_code == 200
+    assert artwork.content == b"episode artwork"
+    assert artwork.headers["content-type"] == "image/jpeg"
+
+
 def test_trivia_edit_rephrase_and_delete(client, monkeypatch):
     speaker = _speaker(client)
     episode = _episode(client, [speaker["id"]])
@@ -424,8 +479,13 @@ def test_episode_delete_cleans_object_storage_and_keeps_record_on_cleanup_failur
     monkeypatch.setattr(episode_routes, "get_object_storage", lambda settings: storage)
     with get_connection() as conn:
         conn.execute(
-            "UPDATE episodes SET audio_path = ?, audio_object_key = ? WHERE id = ?",
-            [f"episodes/{episode['id']}/source.mp3", f"episodes/{episode['id']}/source.mp3", episode["id"]],
+            "UPDATE episodes SET audio_path = ?, audio_object_key = ?, artwork_object_key = ? WHERE id = ?",
+            [
+                f"episodes/{episode['id']}/source.mp3",
+                f"episodes/{episode['id']}/source.mp3",
+                f"episodes/{episode['id']}/artwork",
+                episode["id"],
+            ],
         )
         job = create_job(conn, episode["id"], "transcribe")
         update_job_status(conn, job["id"], "succeeded")
@@ -441,6 +501,7 @@ def test_episode_delete_cleans_object_storage_and_keeps_record_on_cleanup_failur
     assert deleted.status_code == 204
     assert storage.objects == [
         f"episodes/{episode['id']}/source.mp3",
+        f"episodes/{episode['id']}/artwork",
         f"artifacts/{episode['id']}/transcript.json",
     ]
     assert storage.prefixes == [f"artifacts/{episode['id']}/"]

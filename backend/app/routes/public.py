@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query
 
+from ..config import get_settings
 from ..db import get_connection
 from ..repositories import (
+    get_episode,
     get_published_episode,
     list_public_trivia,
     list_published_episode_page,
@@ -10,6 +12,7 @@ from ..repositories import (
     list_speakers,
 )
 from ..schemas import PublicEpisodeOut, PublicEpisodePageOut, PublicTriviaItemOut, SpeakerOut
+from ..services.artwork import episode_artwork_response
 
 
 router = APIRouter(prefix="/public", tags=["public"])
@@ -43,6 +46,17 @@ def public_episode(episode_id: str) -> dict:
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
     return episode
+
+
+@router.get("/episodes/{episode_id}/artwork", response_model=None)
+def public_episode_artwork(episode_id: str):
+    settings = get_settings()
+    with get_connection() as conn:
+        episode = get_episode(conn, episode_id)
+    if episode is None or not episode["is_published"] or not episode.get("artwork_object_key"):
+        raise HTTPException(status_code=404, detail="Episode artwork not found")
+
+    return episode_artwork_response(episode, settings)
 
 
 @router.get("/episodes/{episode_id}/trivia", response_model=list[PublicTriviaItemOut])

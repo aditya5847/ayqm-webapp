@@ -100,10 +100,22 @@ def create_rss_episode(
         conn.execute(
             """
             UPDATE episodes SET rss_enclosure_url = ?, audio_content_type = ?,
-                duration_seconds = COALESCE(?, duration_seconds), updated_at = ?
+                duration_seconds = COALESCE(?, duration_seconds),
+                rss_artwork_url = ?, artwork_object_key = ?,
+                artwork_content_type = ?, artwork_size_bytes = ?, updated_at = ?
             WHERE id = ?
             """,
-            [item["enclosure_url"], item.get("content_type"), item.get("duration_seconds"), now_utc(), existing["id"]],
+            [
+                item["enclosure_url"],
+                item.get("content_type"),
+                item.get("duration_seconds"),
+                item.get("rss_artwork_url"),
+                item.get("artwork_object_key"),
+                item.get("artwork_content_type"),
+                item.get("artwork_size_bytes"),
+                now_utc(),
+                existing["id"],
+            ],
         )
         return get_episode(conn, existing["id"]), False
 
@@ -115,8 +127,10 @@ def create_rss_episode(
             id, episode_title, episode_number, episode_description, published_at,
             source_url, extra_metadata, audio_path, audio_content_type, is_published,
             created_at, updated_at, episode_kind, rss_guid, rss_enclosure_url,
-            audio_object_key, audio_size_bytes, duration_seconds, rss_imported_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?::JSON, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            audio_object_key, audio_size_bytes, duration_seconds, rss_imported_at,
+            rss_artwork_url, artwork_object_key, artwork_content_type,
+            artwork_size_bytes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?::JSON, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             episode_id,
@@ -137,6 +151,10 @@ def create_rss_episode(
             item.get("size_bytes"),
             item.get("duration_seconds"),
             timestamp,
+            item.get("rss_artwork_url"),
+            item.get("artwork_object_key"),
+            item.get("artwork_content_type"),
+            item.get("artwork_size_bytes"),
         ],
     )
     replace_episode_speakers(conn, episode_id, speaker_ids)
@@ -164,7 +182,8 @@ def get_episode(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | N
             e.updated_at
             , e.episode_kind, e.rss_guid, e.rss_enclosure_url,
             e.audio_object_key, e.audio_sha256, e.audio_size_bytes,
-            e.duration_seconds, e.rss_imported_at
+            e.duration_seconds, e.rss_imported_at, e.rss_artwork_url,
+            e.artwork_object_key, e.artwork_content_type, e.artwork_size_bytes
         FROM episodes e
         LEFT JOIN transcripts t ON t.episode_id = e.id
         LEFT JOIN trivia_items ti ON ti.episode_id = e.id
@@ -174,7 +193,9 @@ def get_episode(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | N
             e.source_url, e.extra_metadata, e.audio_path, e.audio_content_type, e.is_published,
             t.episode_id, e.created_at, e.updated_at, e.episode_kind, e.rss_guid,
             e.rss_enclosure_url, e.audio_object_key, e.audio_sha256,
-            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at
+            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at,
+            e.rss_artwork_url, e.artwork_object_key, e.artwork_content_type,
+            e.artwork_size_bytes
         """,
         [episode_id],
     ).fetchone()
@@ -204,7 +225,8 @@ def list_episodes(conn: DuckDBPyConnection) -> list[dict[str, Any]]:
             e.updated_at
             , e.episode_kind, e.rss_guid, e.rss_enclosure_url,
             e.audio_object_key, e.audio_sha256, e.audio_size_bytes,
-            e.duration_seconds, e.rss_imported_at
+            e.duration_seconds, e.rss_imported_at, e.rss_artwork_url,
+            e.artwork_object_key, e.artwork_content_type, e.artwork_size_bytes
         FROM episodes e
         LEFT JOIN transcripts t ON t.episode_id = e.id
         LEFT JOIN trivia_items ti ON ti.episode_id = e.id
@@ -213,11 +235,69 @@ def list_episodes(conn: DuckDBPyConnection) -> list[dict[str, Any]]:
             e.source_url, e.extra_metadata, e.audio_path, e.audio_content_type, e.is_published,
             t.episode_id, e.created_at, e.updated_at, e.episode_kind, e.rss_guid,
             e.rss_enclosure_url, e.audio_object_key, e.audio_sha256,
-            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at
+            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at,
+            e.rss_artwork_url, e.artwork_object_key, e.artwork_content_type,
+            e.artwork_size_bytes
         ORDER BY e.created_at DESC
         """
     ).fetchall()
     return [_episode_from_row(conn, row) for row in rows]
+
+
+def list_episodes_page(
+    conn: DuckDBPyConnection,
+    *,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    total_items = int(conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0])
+    total_pages = (total_items + page_size - 1) // page_size
+    effective_page = min(page, max(total_pages, 1))
+    rows = conn.execute(
+        """
+        SELECT
+            e.id,
+            e.episode_title,
+            e.episode_number,
+            e.episode_description,
+            e.published_at,
+            e.source_url,
+            e.extra_metadata,
+            e.audio_path,
+            e.audio_content_type,
+            e.is_published,
+            CASE WHEN t.episode_id IS NULL THEN 'missing' ELSE 'completed' END AS transcript_status,
+            CASE WHEN COUNT(ti.id) = 0 THEN 'missing' ELSE 'completed' END AS trivia_status,
+            COUNT(ti.id) AS trivia_count,
+            e.created_at,
+            e.updated_at,
+            e.episode_kind, e.rss_guid, e.rss_enclosure_url,
+            e.audio_object_key, e.audio_sha256, e.audio_size_bytes,
+            e.duration_seconds, e.rss_imported_at, e.rss_artwork_url,
+            e.artwork_object_key, e.artwork_content_type, e.artwork_size_bytes
+        FROM episodes e
+        LEFT JOIN transcripts t ON t.episode_id = e.id
+        LEFT JOIN trivia_items ti ON ti.episode_id = e.id
+        GROUP BY
+            e.id, e.episode_title, e.episode_number, e.episode_description, e.published_at,
+            e.source_url, e.extra_metadata, e.audio_path, e.audio_content_type, e.is_published,
+            t.episode_id, e.created_at, e.updated_at, e.episode_kind, e.rss_guid,
+            e.rss_enclosure_url, e.audio_object_key, e.audio_sha256,
+            e.audio_size_bytes, e.duration_seconds, e.rss_imported_at,
+            e.rss_artwork_url, e.artwork_object_key, e.artwork_content_type,
+            e.artwork_size_bytes
+        ORDER BY e.created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        [page_size, (effective_page - 1) * page_size],
+    ).fetchall()
+    return {
+        "items": [_episode_from_row(conn, row) for row in rows],
+        "page": effective_page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+    }
 
 
 def update_episode(conn: DuckDBPyConnection, episode_id: str, request: EpisodeUpdate) -> dict[str, Any] | None:
@@ -344,6 +424,7 @@ def _public_episode(episode: dict[str, Any]) -> dict[str, Any]:
             "episode_description",
             "published_at",
             "source_url",
+            "artwork_url",
             "speakers",
             "trivia_count",
         )
@@ -376,6 +457,11 @@ def _episode_from_row(conn: DuckDBPyConnection, row: tuple[Any, ...]) -> dict[st
         "audio_size_bytes": row[20],
         "duration_seconds": row[21],
         "rss_imported_at": row[22],
+        "rss_artwork_url": row[23],
+        "artwork_object_key": row[24],
+        "artwork_content_type": row[25],
+        "artwork_size_bytes": row[26],
+        "artwork_url": f"/public/episodes/{episode_id}/artwork" if row[24] else None,
         "speakers": list_episode_speakers(conn, episode_id),
         "active_job": get_active_episode_job(conn, episode_id),
     }

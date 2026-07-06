@@ -3,8 +3,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import { ArrowLeft, ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Youtube, X } from "lucide-react";
 import { Link, NavLink, Outlet, useParams, useSearchParams } from "react-router-dom";
-import { getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicSpeakers, listPublicTrivia, listRandomPublicTrivia } from "./api";
 import type { PublicEpisode, PublicSpeaker, TriviaItem } from "./types";
+import { apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicSpeakers, listPublicTrivia, listRandomPublicTrivia } from "./api";
 import { formatDate, triviaAskerName } from "./workflow";
 import { Notice, QueryState } from "./ui";
 import logoUrl from "../references/Logo.png";
@@ -40,13 +40,12 @@ export function PublicLayout() {
 
 export function HomePage() {
   const episodes = useQuery({ queryKey: ["public", "episodes"], queryFn: listPublicEpisodes });
-  const trivia = useQuery({ queryKey: ["public", "trivia", 6], queryFn: () => listPublicTrivia(6) });
   const latest = episodes.data?.[0];
 
   return (
     <>
       <section className="home-hero">
-        <div className="hero-art"><img src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" /></div>
+        <div className="hero-art"><HeroArtwork latest={latest} /></div>
         <div className="hero-copy">
           <p className="comic-kicker">The podcast that asks</p>
           <h1>Are You Quizzing Me?</h1>
@@ -69,12 +68,6 @@ export function HomePage() {
         <QueryState query={episodes} feature="The episode showcase" empty="No episodes are available yet.">
           {(items) => <EpisodeStrip episodes={items.slice(0, 3)} />}
         </QueryState>
-        <section className="editorial-section">
-          <div className="section-title-row"><div><p className="eyebrow">Test yourself</p><h2>Questions from the show</h2></div><Link to="/trivia">All trivia <ArrowRight size={16} /></Link></div>
-          <QueryState query={trivia} feature="Featured trivia" empty="No trivia is available yet.">
-            {(items) => <TriviaGrid items={items} />}
-          </QueryState>
-        </section>
       </div>
     </>
   );
@@ -113,7 +106,7 @@ export function PublicEpisodePage() {
         {(item) => (
           <>
             <header className="episode-masthead">
-              <img src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
+              <EpisodeArtwork episode={item} alt={`${item.episode_title} artwork`} />
               <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><EpisodeDescription value={item.episode_description} /><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
             </header>
             <section className="editorial-section"><div className="section-title-row"><div><p className="eyebrow">Play along</p><h2>Trivia from this episode</h2></div></div><QueryState query={trivia} feature="Episode trivia" empty="No trivia is available for this episode.">{(items) => <TriviaGrid items={items} />}</QueryState></section>
@@ -203,7 +196,7 @@ export function AboutPage() {
         <div className="about-hero-copy">
           <p className="eyebrow">About us</p>
           <h1>Two trivia lovers. Far too many cool facts.</h1>
-          <p>Are You Quizzing Me? is an independent Indian trivia podcast created and hosted by Vineeth Nair and Aditya Kashyap.</p>
+          <p>A trivia podcast created and hosted by Vineeth Nair and Aditya Kashyap.</p>
         </div>
         <img src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
       </section>
@@ -299,18 +292,36 @@ function EpisodeStrip({ episodes }: { episodes: PublicEpisode[] }) {
 }
 
 function EpisodeTile({ episode }: { episode: PublicEpisode }) {
-  return <article className="episode-tile"><Link to={`/episodes/${episode.id}`}><img src={thumbnailUrl} alt="" /><span>{episodeLabel(episode)}</span><h3>{episode.episode_title}</h3><EpisodeDescription value={episode.episode_description} compact className="clamp" /></Link></article>;
+  return <article className="episode-tile"><Link to={`/episodes/${episode.id}`}><EpisodeArtwork episode={episode} alt="" /><span>{episodeLabel(episode)}</span><h3>{episode.episode_title}</h3><EpisodeDescription value={episode.episode_description} compact className="clamp" /></Link></article>;
 }
 
 function EpisodeRow({ episode }: { episode: PublicEpisode }) {
-  return <article className="episode-row"><img src={thumbnailUrl} alt="" /><div><p className="eyebrow">{episodeLabel(episode)} · {formatDate(episode.published_at)}</p><h2><Link to={`/episodes/${episode.id}`}>{episode.episode_title}</Link></h2><EpisodeDescription value={episode.episode_description} compact /><span>{episode.trivia_count} trivia questions</span></div><Link className="icon-link" to={`/episodes/${episode.id}`} aria-label={`Open ${episode.episode_title}`}><ArrowRight /></Link></article>;
+  return <article className="episode-row"><EpisodeArtwork episode={episode} alt="" /><div><p className="eyebrow">{episodeLabel(episode)} · {formatDate(episode.published_at)}</p><h2><Link to={`/episodes/${episode.id}`}>{episode.episode_title}</Link></h2><EpisodeDescription value={episode.episode_description} compact /><span>{episode.trivia_count} trivia questions</span></div><Link className="icon-link" to={`/episodes/${episode.id}`} aria-label={`Open ${episode.episode_title}`}><ArrowRight /></Link></article>;
+}
+
+function HeroArtwork({ latest }: { latest?: PublicEpisode }) {
+  const artwork = apiAssetUrl(latest?.artwork_url ?? null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [artwork]);
+  return <div className="hero-cover-stack">
+    <img className="hero-podcast-cover" src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
+    {latest && artwork && !failed && <div className="hero-episode-cover"><span>Latest episode</span><img src={artwork} alt={`${latest.episode_title} artwork`} onError={() => setFailed(true)} /></div>}
+  </div>;
+}
+
+function EpisodeArtwork({ episode, alt }: { episode?: PublicEpisode; alt: string }) {
+  const artwork = apiAssetUrl(episode?.artwork_url ?? null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [artwork]);
+  return <img src={!failed && artwork ? artwork : thumbnailUrl} alt={alt} onError={() => setFailed(true)} />;
 }
 
 function EpisodeDescription({ value, compact = false, className = "" }: { value: string | null; compact?: boolean; className?: string }) {
   if (!value) return null;
+  const cleaned = stripEpisodeContactFooter(value);
   const html = compact
-    ? DOMPurify.sanitize(value, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
-    : DOMPurify.sanitize(value, {
+    ? DOMPurify.sanitize(cleaned, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })
+    : DOMPurify.sanitize(cleaned, {
       ALLOWED_TAGS: ["p", "br", "strong", "b", "em", "i", "ul", "ol", "li", "a", "blockquote"],
       ALLOWED_ATTR: ["href", "title"],
       ALLOW_DATA_ATTR: false
@@ -318,6 +329,35 @@ function EpisodeDescription({ value, compact = false, className = "" }: { value:
   const classes = ["episode-description", compact ? "compact" : "rich", className].filter(Boolean).join(" ");
   const Element = compact ? "p" : "div";
   return <Element className={classes} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function stripEpisodeContactFooter(value: string): string {
+  const marker = "you can reach us at";
+  const root = new DOMParser().parseFromString(`<div id="episode-description-root">${value}</div>`, "text/html").getElementById("episode-description-root");
+  if (!root) return value;
+
+  const blockElements = Array.from(root.querySelectorAll("p, div, section, blockquote, li"));
+  const footerBlock = blockElements.find((element) => {
+    const text = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+    return text.includes(marker);
+  });
+
+  if (footerBlock) {
+    let sibling: ChildNode | null = footerBlock;
+    while (sibling) {
+      const next: ChildNode | null = sibling.nextSibling;
+      sibling.remove();
+      sibling = next;
+    }
+    return root.innerHTML;
+  }
+
+  const text = root.textContent ?? "";
+  const markerIndex = text.toLowerCase().indexOf(marker);
+  if (markerIndex === -1) return root.innerHTML;
+
+  root.innerHTML = text.slice(0, markerIndex).trimEnd();
+  return root.innerHTML;
 }
 
 function HostPortrait({ host, name, initials }: { host: string; name: string; initials: string }) {
