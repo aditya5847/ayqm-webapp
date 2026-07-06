@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import { ArrowLeft, ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Youtube, X } from "lucide-react";
 import { Link, NavLink, Outlet, useParams, useSearchParams } from "react-router-dom";
-import { apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listRandomPublicTrivia } from "./api";
-import type { PublicEpisode, TriviaItem } from "./types";
+import type { PublicEpisode, PublicSpeaker, TriviaItem } from "./types";
+import { apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicSpeakers, listPublicTrivia, listRandomPublicTrivia } from "./api";
 import { formatDate, triviaAskerName } from "./workflow";
 import { Notice, QueryState } from "./ui";
 import logoUrl from "../references/Logo.png";
@@ -41,6 +41,7 @@ export function PublicLayout() {
 export function HomePage() {
   const episodes = useQuery({ queryKey: ["public", "episodes"], queryFn: listPublicEpisodes });
   const latest = episodes.data?.[0];
+  const latestDescription = latest?.episode_description ?? (import.meta.env.MODE === "development" ? demoHeroDescription : null);
 
   return (
     <>
@@ -52,11 +53,18 @@ export function HomePage() {
           {latest ? (
             <>
               <p className="episode-label">Latest: {episodeLabel(latest)}</p>
-              <h2>{latest.episode_title}</h2>
-              <EpisodeDescription value={latest.episode_description} compact />
-              <div className="hero-actions">
-                <Link className="button primary" to={`/episodes/${latest.id}`}>Explore episode <ArrowRight size={18} /></Link>
-                {latest.source_url && <a className="button light" href={latest.source_url} target="_blank" rel="noreferrer">Listen <ExternalLink size={17} /></a>}
+              <div className="hero-latest-row">
+                <div className="hero-latest-top">
+                  <EpisodeArtwork episode={latest} alt={`${latest.episode_title} artwork`} className="hero-latest-artwork" />
+                    <h2>{latest.episode_title}</h2>
+                </div>
+                <div className="hero-latest-body">
+                  <EpisodeDescription value={latestDescription} compact />
+                  <div className="hero-actions">
+                    <Link className="button primary" to={`/episodes/${latest.id}`}>Explore episode <ArrowRight size={18} /></Link>
+                    {latest.source_url && <a className="button light" href={latest.source_url} target="_blank" rel="noreferrer">Listen <ExternalLink size={17} /></a>}
+                  </div>
+                </div>
               </div>
             </>
           ) : !episodes.isLoading && !episodes.error ? (
@@ -66,7 +74,7 @@ export function HomePage() {
       </section>
       <div className="public-content">
         <QueryState query={episodes} feature="The episode showcase" empty="No episodes are available yet.">
-          {(items) => <EpisodeStrip episodes={items.slice(0, 3)} />}
+          {(items) => <EpisodeStrip episodes={items.slice(1, 4)} />}
         </QueryState>
       </div>
     </>
@@ -136,19 +144,62 @@ export function PublicTriviaPage() {
   );
 }
 
-const guestHosts = [
-  "Garry Leavy",
-  "Aniruddha Sen Gupta",
-  "Rajiv D'Silva",
-  "Sai Visesh Suresh",
-  "Hari Krishna Vetheranian",
-  "Aishwarya Raman",
-  "Berty Ashley"
-];
+const hostNames = new Set([
+  normalizeGuestHostName("Aditya"),
+  normalizeGuestHostName("Aditya Kashyap"),
+  normalizeGuestHostName("Vineeth"),
+  normalizeGuestHostName("Vineeth Nair")
+]);
 
 const hostPortraitModules = import.meta.glob("../references/hosts/*", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+const isDevelopmentMode = import.meta.env.MODE === "development";
+const demoGuestEpisodes: PublicEpisode[] = [
+  {
+    id: "demo-episode-12",
+    episode_title: "Demo guest appearance",
+    episode_number: 12,
+    episode_kind: "main",
+    episode_description: null,
+    published_at: "2026-01-01T00:00:00Z",
+    source_url: null,
+    artwork_url: null,
+    speakers: [{ id: "speaker-garry-leavy", name: "Garry Leavy" }],
+    trivia_count: 0
+  },
+  {
+    id: "demo-episode-29",
+    episode_title: "Another demo guest appearance",
+    episode_number: 29,
+    episode_kind: "main",
+    episode_description: null,
+    published_at: "2026-01-08T00:00:00Z",
+    source_url: null,
+    artwork_url: null,
+    speakers: [{ id: "speaker-garry-leavy", name: "Garry Leavy" }],
+    trivia_count: 0
+  }
+];
 
 export function AboutPage() {
+  const speakers = useQuery({ queryKey: ["public", "about", "speakers"], queryFn: listPublicSpeakers });
+  const episodes = useQuery({ queryKey: ["public", "about", "guest-episodes"], queryFn: listPublicEpisodes });
+  const guestEpisodeMap = useMemo(() => groupGuestEpisodes(episodes.data ?? []), [episodes.data]);
+  const guestSpeakers = useMemo<PublicSpeaker[]>(() => {
+    const items = speakers.data ?? [];
+    return items
+      .filter((speaker) => !hostNames.has(normalizeGuestHostName(speaker.name)))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [speakers.data]);
+  const guestEpisodeMapWithDemo = useMemo(() => {
+    if (!isDevelopmentMode) return guestEpisodeMap;
+    const next = new Map(guestEpisodeMap);
+    const demoKey = normalizeGuestHostName("Garry Leavy");
+    const existing = next.get(demoKey) ?? [];
+    if (existing.length < 2) {
+      next.set(demoKey, [...existing, ...demoGuestEpisodes]);
+    }
+    return next;
+  }, [guestEpisodeMap]);
   return (
     <div className="about-page">
       <section className="about-hero">
@@ -188,7 +239,29 @@ export function AboutPage() {
 
         <section className="guest-section">
           <div><p className="eyebrow">Friends of the show</p><h2>Guest hosts so far</h2><p>Quizmasters and curious minds who have joined us behind the microphone.</p></div>
-          <ol className="guest-list">{guestHosts.map((name, index) => <li key={name}><span>{String(index + 1).padStart(2, "0")}</span>{name}</li>)}</ol>
+          <ol className="guest-list">
+            {guestSpeakers.map((speaker, index) => {
+              const episodes = guestEpisodeMapWithDemo.get(normalizeGuestHostName(speaker.name)) ?? [];
+              const numberedEpisodes = episodes.filter((episode) => episode.episode_number != null);
+              return (
+                <li key={speaker.id}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <div className="guest-list-copy">
+                    <strong>{speaker.name}</strong>
+                    <div className="guest-episodes">
+                      {numberedEpisodes.length > 0 ? (
+                        numberedEpisodes.map((episode) => (
+                          <Link key={episode.id} to={`/episodes/${episode.id}`}>{episodeNumberBadge(episode)}</Link>
+                        ))
+                      ) : (
+                        <p>No published episodes yet.</p>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
         </section>
 
         <section className="connect-section">
@@ -237,20 +310,21 @@ function EpisodeRow({ episode }: { episode: PublicEpisode }) {
 }
 
 function HeroArtwork({ latest }: { latest?: PublicEpisode }) {
-  const artwork = apiAssetUrl(latest?.artwork_url ?? null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [artwork]);
-  return <div className="hero-cover-stack">
-    <img className="hero-podcast-cover" src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
-    {latest && artwork && !failed && <div className="hero-episode-cover"><span>Latest episode</span><img src={artwork} alt={`${latest.episode_title} artwork`} onError={() => setFailed(true)} /></div>}
-  </div>;
+  return <img className="hero-podcast-cover" src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />;
 }
 
-function EpisodeArtwork({ episode, alt }: { episode?: PublicEpisode; alt: string }) {
+const demoHeroDescription = [
+  "This is dummy hero copy for layout checking.",
+  "It is intentionally long enough to wrap across several lines.",
+  "That makes it easier to see whether the artwork, title, description, and buttons are balanced.",
+  "Remove this once you are happy with the spacing."
+].join(" ");
+
+function EpisodeArtwork({ episode, alt, className = "" }: { episode?: PublicEpisode; alt: string; className?: string }) {
   const artwork = apiAssetUrl(episode?.artwork_url ?? null);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [artwork]);
-  return <img src={!failed && artwork ? artwork : thumbnailUrl} alt={alt} onError={() => setFailed(true)} />;
+  return <img className={className || undefined} src={!failed && artwork ? artwork : thumbnailUrl} alt={alt} onError={() => setFailed(true)} />;
 }
 
 function EpisodeDescription({ value, compact = false, className = "" }: { value: string | null; compact?: boolean; className?: string }) {
@@ -330,6 +404,38 @@ function episodeLabel(episode: PublicEpisode): string {
   if (episode.episode_kind === "announcement") return "Announcement";
   if (episode.episode_kind === "mini") return `Mini episode ${episode.episode_number}`;
   return `Episode ${episode.episode_number}`;
+}
+
+function normalizeGuestHostName(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ");
+}
+
+function episodeNumberBadge(episode: PublicEpisode): string | null {
+  if (episode.episode_number == null) return null;
+  return `#${episode.episode_number}`;
+}
+
+function groupGuestEpisodes(episodes: PublicEpisode[]): Map<string, PublicEpisode[]> {
+  const grouped = new Map<string, PublicEpisode[]>();
+  episodes.forEach((episode) => {
+    episode.speakers.forEach((speaker) => {
+      const key = normalizeGuestHostName(speaker.name);
+      const current = grouped.get(key) ?? [];
+      if (current.some((item) => item.id === episode.id)) return;
+      current.push(episode);
+      grouped.set(key, current);
+    });
+  });
+  grouped.forEach((items, key) => {
+    items.sort((left, right) => {
+      const leftNumber = left.episode_number ?? Number.POSITIVE_INFINITY;
+      const rightNumber = right.episode_number ?? Number.POSITIVE_INFINITY;
+      if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+      return (right.published_at ?? "").localeCompare(left.published_at ?? "");
+    });
+    grouped.set(key, items);
+  });
+  return grouped;
 }
 
 export function TriviaGrid({ items }: { items: TriviaItem[] }) {

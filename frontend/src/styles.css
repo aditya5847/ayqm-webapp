@@ -78,18 +78,14 @@ h1, h2, h3 { overflow-wrap: anywhere; }
   background: var(--yellow);
   border-bottom: 3px solid var(--ink);
   display: grid;
-  grid-template-columns: minmax(300px, 40%) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 34%) minmax(0, 1fr);
   margin: 0 auto;
   min-height: min(680px, calc(100vh - 84px));
   overflow: hidden;
 }
-.hero-art { align-items: center; background: var(--cyan); border-right: 3px solid var(--ink); display: flex; justify-content: center; padding: clamp(24px, 5vw, 72px); }
-.hero-cover-stack { position: relative; width: min(86%, 430px); }
-.hero-podcast-cover { border: 3px solid var(--ink); box-shadow: 12px 12px 0 var(--red); width: 100%; }
-.hero-episode-cover { bottom: -30px; position: absolute; right: -28px; width: clamp(125px, 42%, 205px); z-index: 1; }
-.hero-episode-cover span { background: var(--yellow); border: 2px solid var(--ink); display: inline-block; font-size: 10px; font-weight: 900; left: -8px; padding: 5px 7px; position: absolute; text-transform: uppercase; top: -15px; transform: rotate(-2deg); z-index: 2; }
-.hero-episode-cover img { aspect-ratio: 1; border: 3px solid var(--ink); box-shadow: 8px 8px 0 var(--yellow); object-fit: cover; width: 100%; }
-.hero-copy { align-self: center; max-width: 760px; padding: clamp(36px, 7vw, 100px); }
+.hero-art { align-items: center; background: var(--cyan); border-right: 3px solid var(--ink); display: flex; justify-content: center; padding: clamp(20px, 4vw, 56px); }
+.hero-podcast-cover { border: 3px solid var(--ink); box-shadow: 12px 12px 0 var(--red); width: min(70%, 310px); }
+.hero-copy { align-self: center; max-width: 920px; padding: clamp(36px, 7vw, 100px); }
 .hero-copy .comic-kicker { background: #fff; border: 2px solid var(--ink); display: inline-block; padding: 6px 9px; transform: rotate(-1deg); }
 .hero-copy h1, .public-page-title h1, .episode-masthead h1 {
   font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
@@ -104,7 +100,12 @@ h1, h2, h3 { overflow-wrap: anywhere; }
 .hero-copy h2 { font-size: clamp(24px, 3vw, 40px); line-height: 1.03; margin-bottom: 14px; }
 .hero-copy > p:not(.comic-kicker):not(.episode-label) { font-family: Georgia, serif; font-size: 18px; line-height: 1.55; }
 .hero-copy .episode-description { font-family: Georgia, serif; font-size: 18px; line-height: 1.55; }
-.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 25px; }
+.hero-latest-row { display: block; margin-top: 10px; }
+.hero-latest-top { align-items: center; display: flex; gap: 12px; min-width: 0; }
+.hero-latest-artwork { border: 3px solid var(--ink); box-shadow: 8px 8px 0 var(--yellow); flex: 0 0 clamp(88px, 14vw, 140px); object-fit: cover; width: clamp(88px, 14vw, 140px); }
+.hero-latest-top h2 { margin: 0; }
+.hero-latest-body { margin-top: 12px; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
 
 .public-content { margin: 0 auto; max-width: 1240px; padding: clamp(30px, 5vw, 64px) 24px clamp(42px, 7vw, 88px); }
 .editorial-section { border-top: 3px solid var(--ink); padding: 26px 0 64px; }
@@ -229,8 +230,25 @@ h1, h2, h3 { overflow-wrap: anywhere; }
 .guest-section { align-items: start; border-top: 3px solid var(--ink); display: grid; gap: clamp(35px, 7vw, 100px); grid-template-columns: minmax(250px, .8fr) minmax(0, 1.2fr); padding-top: 30px; }
 .guest-section > div > p:last-child { color: var(--muted); font-family: Georgia, serif; line-height: 1.5; margin-top: 18px; }
 .guest-list { border-top: 2px solid var(--ink); list-style: none; margin: 0; padding: 0; }
-.guest-list li { align-items: center; border-bottom: 2px solid var(--ink); display: grid; font-size: clamp(20px, 2.6vw, 30px); font-weight: 800; gap: 18px; grid-template-columns: 46px minmax(0, 1fr); min-height: 73px; padding: 10px 0; }
+.guest-list li { align-items: start; border-bottom: 2px solid var(--ink); display: grid; font-size: clamp(20px, 2.6vw, 30px); font-weight: 800; gap: 18px; grid-template-columns: 46px minmax(0, 1fr); min-height: 73px; padding: 12px 0; }
 .guest-list li span { color: var(--red); font-family: Impact, sans-serif; font-size: 18px; }
+.guest-list-copy { display: grid; gap: 8px; min-width: 0; }
+.guest-list-copy strong { line-height: 1.1; }
+.guest-episodes { display: flex; flex-wrap: wrap; gap: 8px; }
+.guest-episodes a, .guest-episodes p {
+  background: #fff;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  display: inline-flex;
+  font-family: Georgia, serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 9px;
+  text-decoration: none;
+}
+.guest-episodes a:hover { background: var(--yellow); }
+.guest-episodes p { color: var(--muted); margin: 0; }
 .connect-section { background: var(--yellow); border: 3px solid var(--ink); display: grid; gap: 40px; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.2fr); padding: clamp(25px, 5vw, 55px); }
 .connect-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .connect-links a { align-items: center; border-bottom: 2px solid var(--ink); display: flex; font-weight: 900; gap: 10px; min-height: 53px; padding: 8px; text-decoration: none; text-transform: uppercase; }
@@ -405,8 +423,10 @@ audio { max-width: 100%; width: 100%; }
 
 @media (max-width: 680px) {
   .home-hero { grid-template-columns: 1fr; }
-  .hero-art { border-bottom: 3px solid var(--ink); border-right: 0; padding: 28px; }
-  .hero-cover-stack { margin: 4px 24px 22px 0; width: min(76%, 290px); }
+  .hero-art { border-bottom: 3px solid var(--ink); border-right: 0; padding: 22px; }
+  .hero-podcast-cover { width: min(60%, 210px); }
+  .hero-latest-row { margin-top: 8px; }
+  .hero-latest-artwork { width: min(100%, 180px); }
   .hero-podcast-cover { box-shadow: 8px 8px 0 var(--red); }
   .hero-episode-cover { bottom: -20px; right: -32px; width: clamp(105px, 42%, 135px); }
   .hero-episode-cover img { box-shadow: 6px 6px 0 var(--yellow); }

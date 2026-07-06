@@ -10,6 +10,7 @@ import type {
   JobAccepted,
   PublicEpisode,
   PublicEpisodePage,
+  PublicSpeaker,
   Speaker,
   SpeakerLabels,
   SpeakerMappingResponse,
@@ -87,6 +88,10 @@ export async function listEpisodes(page = 1, pageSize = 30): Promise<AdminEpisod
 
 export async function listPublicEpisodes(): Promise<PublicEpisode[]> {
   return request<PublicEpisode[]>("/public/episodes");
+}
+
+export async function listPublicSpeakers(): Promise<PublicSpeaker[]> {
+  return request<PublicSpeaker[]>("/public/speakers");
 }
 
 export async function listPublicEpisodePage(page: number, pageSize = 10): Promise<PublicEpisodePage> {

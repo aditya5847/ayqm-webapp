@@ -7,6 +7,11 @@ export interface Speaker {
   name: string;
 }
 
+export interface PublicSpeaker {
+  id: string;
+  name: string;
+}
+
 export interface Episode {
   id: string;
   episode_title: string;

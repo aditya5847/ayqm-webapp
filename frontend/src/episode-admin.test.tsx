@@ -107,8 +107,8 @@ describe("episode workspace routing", () => {
     renderApp("/admin/episodes");
 
     expect(await screen.findByRole("link", { name: /#1 Episode 1/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Next/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Next/ }));
+    expect(screen.getAllByRole("button", { name: /Next/ })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: /Next/ })[0]);
     expect(await screen.findByRole("link", { name: /#31 Episode 31/ })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("page=2"), expect.anything());
   });
