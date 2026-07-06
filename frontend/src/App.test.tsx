@@ -45,18 +45,44 @@ describe("public experience", () => {
     expect(await screen.findByText(/Set VITE_API_BASE_URL/)).toBeInTheDocument();
   });
 
-  it("renders the static about page and guest host roll without an API", () => {
+  it("renders the about page and guest host episode links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/public/speakers")) {
+        return jsonResponse([
+          { id: "speaker-1", name: "Garry Leavy" },
+          { id: "speaker-2", name: "Berty Ashley" },
+          { id: "speaker-3", name: "Vineeth Nair" }
+        ]);
+      }
+      if (url.endsWith("/public/episodes")) {
+        return jsonResponse([
+          publicEpisode("episode-12", "A crossword of facts", 12, ["Garry Leavy"]),
+          publicEpisode("episode-24", "A very loud clue", 24, ["Berty Ashley"])
+        ]);
+      }
+      return jsonResponse({ detail: "Not found" }, 404);
+    }));
     renderApp("/about");
     expect(screen.getByRole("heading", { name: "Meet the hosts" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Vineeth Nair" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Aditya Kashyap" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Vineeth Nair" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Aditya Kashyap" })).toBeInTheDocument();
-    expect(screen.getByText("Garry Leavy")).toBeInTheDocument();
-    expect(screen.getByText("Berty Ashley")).toBeInTheDocument();
+    expect(await screen.findByText("Garry Leavy")).toBeInTheDocument();
+    expect(await screen.findByText("Berty Ashley")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "#12" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#24" })).toBeInTheDocument();
+    expect(screen.queryByText("Episode 12")).not.toBeInTheDocument();
   });
 
   it("does not expose admin navigation on the public site", () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/public/speakers")) return jsonResponse([]);
+      if (url.endsWith("/public/episodes")) return jsonResponse([]);
+      return jsonResponse({ detail: "Not found" }, 404);
+    }));
     renderApp("/about");
     expect(screen.queryByRole("link", { name: /admin/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Podcast admin")).not.toBeInTheDocument();
@@ -155,14 +181,14 @@ function trivia(id: string, question: string): TriviaItem {
   return { ...triviaItem, id, question };
 }
 
-function publicEpisode(id: string, title: string) {
+function publicEpisode(id: string, title: string, episodeNumber = 1, speakers: string[] = []) {
   return {
-    id, episode_title: title, episode_number: 1, episode_kind: "main",
+    id, episode_title: title, episode_number: episodeNumber, episode_kind: "main",
     episode_description: "Description", published_at: "2026-01-01T00:00:00Z",
-    source_url: null, speakers: [], trivia_count: 0
+    source_url: null, speakers: speakers.map(name => ({ id: name.toLowerCase().replace(/\s+/g, "-"), name })), trivia_count: 0
   };
 }
 
-function jsonResponse(payload: unknown): Response {
-  return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 }

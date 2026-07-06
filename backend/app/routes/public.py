@@ -7,8 +7,9 @@ from ..repositories import (
     list_published_episode_page,
     list_published_episodes,
     list_random_public_trivia,
+    list_speakers,
 )
-from ..schemas import PublicEpisodeOut, PublicEpisodePageOut, PublicTriviaItemOut
+from ..schemas import PublicEpisodeOut, PublicEpisodePageOut, PublicTriviaItemOut, SpeakerOut
 
 
 router = APIRouter(prefix="/public", tags=["public"])
@@ -18,6 +19,12 @@ router = APIRouter(prefix="/public", tags=["public"])
 def public_episodes() -> list[dict]:
     with get_connection() as conn:
         return list_published_episodes(conn)
+
+
+@router.get("/speakers", response_model=list[SpeakerOut])
+def public_speakers() -> list[dict]:
+    with get_connection() as conn:
+        return list_speakers(conn)
 
 
 @router.get("/episodes/archive", response_model=PublicEpisodePageOut)
