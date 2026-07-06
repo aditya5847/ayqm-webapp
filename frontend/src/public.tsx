@@ -41,6 +41,7 @@ export function PublicLayout() {
 export function HomePage() {
   const episodes = useQuery({ queryKey: ["public", "episodes"], queryFn: listPublicEpisodes });
   const latest = episodes.data?.[0];
+  const latestDescription = latest?.episode_description ?? (import.meta.env.MODE === "development" ? demoHeroDescription : null);
 
   return (
     <>
@@ -52,11 +53,18 @@ export function HomePage() {
           {latest ? (
             <>
               <p className="episode-label">Latest: {episodeLabel(latest)}</p>
-              <h2>{latest.episode_title}</h2>
-              <EpisodeDescription value={latest.episode_description} compact />
-              <div className="hero-actions">
-                <Link className="button primary" to={`/episodes/${latest.id}`}>Explore episode <ArrowRight size={18} /></Link>
-                {latest.source_url && <a className="button light" href={latest.source_url} target="_blank" rel="noreferrer">Listen <ExternalLink size={17} /></a>}
+              <div className="hero-latest-row">
+                <div className="hero-latest-top">
+                  <EpisodeArtwork episode={latest} alt={`${latest.episode_title} artwork`} className="hero-latest-artwork" />
+                    <h2>{latest.episode_title}</h2>
+                </div>
+                <div className="hero-latest-body">
+                  <EpisodeDescription value={latestDescription} compact />
+                  <div className="hero-actions">
+                    <Link className="button primary" to={`/episodes/${latest.id}`}>Explore episode <ArrowRight size={18} /></Link>
+                    {latest.source_url && <a className="button light" href={latest.source_url} target="_blank" rel="noreferrer">Listen <ExternalLink size={17} /></a>}
+                  </div>
+                </div>
               </div>
             </>
           ) : !episodes.isLoading && !episodes.error ? (
@@ -66,7 +74,7 @@ export function HomePage() {
       </section>
       <div className="public-content">
         <QueryState query={episodes} feature="The episode showcase" empty="No episodes are available yet.">
-          {(items) => <EpisodeStrip episodes={items.slice(0, 3)} />}
+          {(items) => <EpisodeStrip episodes={items.slice(1, 4)} />}
         </QueryState>
       </div>
     </>
@@ -154,6 +162,7 @@ const demoGuestEpisodes: PublicEpisode[] = [
     episode_description: null,
     published_at: "2026-01-01T00:00:00Z",
     source_url: null,
+    artwork_url: null,
     speakers: [{ id: "speaker-garry-leavy", name: "Garry Leavy" }],
     trivia_count: 0
   },
@@ -165,6 +174,7 @@ const demoGuestEpisodes: PublicEpisode[] = [
     episode_description: null,
     published_at: "2026-01-08T00:00:00Z",
     source_url: null,
+    artwork_url: null,
     speakers: [{ id: "speaker-garry-leavy", name: "Garry Leavy" }],
     trivia_count: 0
   }
@@ -300,20 +310,21 @@ function EpisodeRow({ episode }: { episode: PublicEpisode }) {
 }
 
 function HeroArtwork({ latest }: { latest?: PublicEpisode }) {
-  const artwork = apiAssetUrl(latest?.artwork_url ?? null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [artwork]);
-  return <div className="hero-cover-stack">
-    <img className="hero-podcast-cover" src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />
-    {latest && artwork && !failed && <div className="hero-episode-cover"><span>Latest episode</span><img src={artwork} alt={`${latest.episode_title} artwork`} onError={() => setFailed(true)} /></div>}
-  </div>;
+  return <img className="hero-podcast-cover" src={thumbnailUrl} alt="Are You Quizzing Me podcast artwork" />;
 }
 
-function EpisodeArtwork({ episode, alt }: { episode?: PublicEpisode; alt: string }) {
+const demoHeroDescription = [
+  "This is dummy hero copy for layout checking.",
+  "It is intentionally long enough to wrap across several lines.",
+  "That makes it easier to see whether the artwork, title, description, and buttons are balanced.",
+  "Remove this once you are happy with the spacing."
+].join(" ");
+
+function EpisodeArtwork({ episode, alt, className = "" }: { episode?: PublicEpisode; alt: string; className?: string }) {
   const artwork = apiAssetUrl(episode?.artwork_url ?? null);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [artwork]);
-  return <img src={!failed && artwork ? artwork : thumbnailUrl} alt={alt} onError={() => setFailed(true)} />;
+  return <img className={className || undefined} src={!failed && artwork ? artwork : thumbnailUrl} alt={alt} onError={() => setFailed(true)} />;
 }
 
 function EpisodeDescription({ value, compact = false, className = "" }: { value: string | null; compact?: boolean; className?: string }) {

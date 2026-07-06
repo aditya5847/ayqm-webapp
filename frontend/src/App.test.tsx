@@ -88,16 +88,13 @@ describe("public experience", () => {
     expect(screen.queryByText("Podcast admin")).not.toBeInTheDocument();
   });
 
-  it("layers latest episode artwork over the podcast artwork and removes a failed overlay", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => jsonResponse(String(input).includes("/public/trivia") ? [] : [publicEpisode("episode-1", "Latest show")])));
+  it("shows latest episode artwork beside the episode details on the home page", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => jsonResponse(String(input).includes("/public/trivia") ? [] : [publicEpisode("episode-1", "Latest show", 1, [], "/public/episodes/episode-1/artwork")])));
     renderApp("/");
 
     expect(screen.getByRole("img", { name: "Are You Quizzing Me podcast artwork" })).toBeInTheDocument();
     const episodeArtwork = await screen.findByRole("img", { name: "Latest show artwork" });
-    expect(screen.getByText("Latest episode")).toBeInTheDocument();
-    fireEvent.error(episodeArtwork);
-    expect(screen.queryByRole("img", { name: "Latest show artwork" })).not.toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Are You Quizzing Me podcast artwork" })).toBeInTheDocument();
+    expect(episodeArtwork).toHaveClass("hero-latest-artwork");
   });
 
   it("renders safe episode description HTML without executable markup", async () => {
@@ -216,11 +213,11 @@ function trivia(id: string, question: string): TriviaItem {
   return { ...triviaItem, id, question };
 }
 
-function publicEpisode(id: string, title: string, episodeNumber = 1, speakers: string[] = []) {
+function publicEpisode(id: string, title: string, episodeNumber = 1, speakers: string[] = [], artworkUrl: string | null = null) {
   return {
     id, episode_title: title, episode_number: episodeNumber, episode_kind: "main",
     episode_description: "Description", published_at: "2026-01-01T00:00:00Z",
-    source_url: null, artwork_url: `/public/episodes/${id}/artwork`, speakers: speakers.map(name => ({ id: name.toLowerCase().replace(/\s+/g, "-"), trivia_count: 0
+    source_url: null, artwork_url: artworkUrl, speakers: speakers.map(name => ({ id: name.toLowerCase().replace(/\s+/g, "-"), name })), trivia_count: 0
   };
 }
 
