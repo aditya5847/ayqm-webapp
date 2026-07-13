@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+import json
 from pathlib import Path
 from threading import RLock
 
@@ -214,6 +215,8 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                     question VARCHAR,
                     options JSON NOT NULL DEFAULT '[]',
                     correct_option INTEGER,
+                    correct_answer VARCHAR,
+                    incorrect_answers JSON NOT NULL DEFAULT '[]',
                     explanation VARCHAR,
                     created_at TIMESTAMP NOT NULL,
                     updated_at TIMESTAMP NOT NULL,
@@ -221,6 +224,7 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                 )
                 """
             )
+            _migrate_sunday_quiz_question_columns(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sunday_quiz_assets (
@@ -300,6 +304,39 @@ def _migrate_job_columns(conn: DuckDBPyConnection) -> None:
     _ensure_column(conn, "jobs", "artifact_key", "VARCHAR")
     _ensure_column(conn, "jobs", "artifact_sha256", "VARCHAR")
     _ensure_column(conn, "jobs", "updated_at", "TIMESTAMP")
+
+
+def _migrate_sunday_quiz_question_columns(conn: DuckDBPyConnection) -> None:
+    if not _table_exists(conn, "sunday_quiz_questions"):
+        return
+    _ensure_column(conn, "sunday_quiz_questions", "correct_answer", "VARCHAR")
+    _ensure_column(conn, "sunday_quiz_questions", "incorrect_answers", "JSON DEFAULT '[]'")
+    rows = conn.execute(
+        """
+        SELECT id, options, correct_option
+        FROM sunday_quiz_questions
+        WHERE correct_answer IS NULL
+          AND correct_option IS NOT NULL
+          AND options IS NOT NULL
+        """
+    ).fetchall()
+    for question_id, options_json, correct_option in rows:
+        if isinstance(options_json, str):
+            options = json.loads(options_json)
+        else:
+            options = options_json
+        if not isinstance(options, list) or correct_option < 0 or correct_option >= len(options):
+            continue
+        correct_answer = options[correct_option]
+        incorrect_answers = [option for index, option in enumerate(options) if index != correct_option]
+        conn.execute(
+            """
+            UPDATE sunday_quiz_questions
+            SET correct_answer = ?, incorrect_answers = ?::JSON
+            WHERE id = ?
+            """,
+            [correct_answer, json.dumps(incorrect_answers), question_id],
+        )
 
 
 def _table_exists(conn: DuckDBPyConnection, table_name: str) -> bool:

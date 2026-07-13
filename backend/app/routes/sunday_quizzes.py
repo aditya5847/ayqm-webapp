@@ -1,5 +1,8 @@
 import json
+import hmac
+import hashlib
 from pathlib import Path
+import random
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -39,6 +42,20 @@ def _loads_json(value, default):
     return value
 
 
+def _option_id(question_id: str, answer: str) -> str:
+    secret = get_settings().session_secret or "ayqm-local-sunday-quiz-options"
+    digest = hmac.new(secret.encode("utf-8"), f"{question_id}\0{answer}".encode("utf-8"), hashlib.sha256)
+    return digest.hexdigest()[:24]
+
+
+def _answer_options(question: dict, *, shuffle: bool) -> list[dict]:
+    options = [{"id": _option_id(question["id"], question["correct_answer"]), "text": question["correct_answer"]}]
+    options.extend({"id": _option_id(question["id"], answer), "text": answer} for answer in question["incorrect_answers"])
+    if shuffle:
+        random.SystemRandom().shuffle(options)
+    return options
+
+
 def _asset_url(asset_id: str, public: bool) -> str:
     prefix = "/public/sunday-quizzes" if public else "/sunday-quizzes"
     return f"{prefix}/assets/{asset_id}"
@@ -74,11 +91,11 @@ def _question_from_row(row, assets: dict[tuple[str | None, str], dict], *, inclu
         "id": question_id,
         "position": row[2],
         "question": row[3],
-        "options": _loads_json(row[4], []),
+        "correct_answer": row[7],
+        "incorrect_answers": _loads_json(row[8], []),
         "question_image_url": (assets.get((question_id, "question")) or {}).get("url"),
     }
     if include_answer:
-        item["correct_option"] = row[5]
         item["explanation"] = row[6]
         item["answer_image_url"] = (assets.get((question_id, "answer")) or {}).get("url")
     return item
@@ -88,7 +105,7 @@ def _quiz_from_row(conn, row, *, public: bool, include_answer: bool = True) -> d
     assets = _asset_map(conn, row[0], public=public)
     questions = conn.execute(
         """
-        SELECT id, quiz_id, position, question, options, correct_option, explanation
+        SELECT id, quiz_id, position, question, options, correct_option, explanation, correct_answer, incorrect_answers
         FROM sunday_quiz_questions
         WHERE quiz_id = ?
         ORDER BY position
@@ -136,11 +153,15 @@ def _validate_publishable(quiz: dict) -> list[str]:
         prefix = f"question {question['position']}"
         if not (question.get("question") or "").strip():
             errors.append(f"{prefix} text is required")
-        options = [option.strip() for option in question.get("options", [])]
-        if len(options) != 4 or any(not option for option in options):
-            errors.append(f"{prefix} needs 4 options")
-        if question.get("correct_option") not in {0, 1, 2, 3}:
+        correct_answer = (question.get("correct_answer") or "").strip()
+        incorrect_answers = [answer.strip() for answer in question.get("incorrect_answers", [])]
+        if not correct_answer:
             errors.append(f"{prefix} correct answer is required")
+        if len(incorrect_answers) != 3 or any(not answer for answer in incorrect_answers):
+            errors.append(f"{prefix} needs 3 incorrect answers")
+        answers = [correct_answer, *incorrect_answers]
+        if len({answer.casefold() for answer in answers if answer}) != 4:
+            errors.append(f"{prefix} answers must be unique")
     return errors
 
 
@@ -169,8 +190,11 @@ def create_sunday_quiz(request: SundayQuizCreate) -> dict:
         for position in range(1, QUESTION_COUNT + 1):
             conn.execute(
                 """
-                INSERT INTO sunday_quiz_questions
-                VALUES (?, ?, ?, NULL, '[]'::JSON, NULL, NULL, ?, ?)
+                INSERT INTO sunday_quiz_questions (
+                    id, quiz_id, position, question, options, correct_option,
+                    correct_answer, incorrect_answers, explanation, created_at, updated_at
+                )
+                VALUES (?, ?, ?, NULL, '[]'::JSON, NULL, NULL, '[]'::JSON, NULL, ?, ?)
                 """,
                 [str(uuid4()), quiz_id, position, timestamp, timestamp],
             )
@@ -225,13 +249,13 @@ def update_sunday_quiz_question(quiz_id: str, question_id: str, request: SundayQ
     if "question" in changes:
         assignments.append("question = ?")
         values.append(changes["question"].strip() if changes["question"] else None)
-    if "options" in changes:
-        options = [option.strip() for option in (changes["options"] or [])]
-        assignments.append("options = ?::JSON")
-        values.append(json.dumps(options))
-    if "correct_option" in changes:
-        assignments.append("correct_option = ?")
-        values.append(changes["correct_option"])
+    if "correct_answer" in changes:
+        assignments.append("correct_answer = ?")
+        values.append(changes["correct_answer"].strip() if changes["correct_answer"] else None)
+    if "incorrect_answers" in changes:
+        incorrect_answers = [answer.strip() for answer in (changes["incorrect_answers"] or [])]
+        assignments.append("incorrect_answers = ?::JSON")
+        values.append(json.dumps(incorrect_answers))
     if "explanation" in changes:
         assignments.append("explanation = ?")
         values.append(changes["explanation"].strip() if changes["explanation"] else None)
@@ -377,7 +401,7 @@ def read_public_sunday_quiz(quiz_id: str) -> dict:
                 "id": question["id"],
                 "position": question["position"],
                 "question": question["question"],
-                "options": question["options"],
+                "options": _answer_options(question, shuffle=True),
                 "question_image_url": question["question_image_url"],
             }
             for question in quiz["questions"]
@@ -394,7 +418,7 @@ def submit_sunday_quiz_attempt(quiz_id: str, request: SundayQuizAttemptIn) -> di
         assets = _asset_map(conn, quiz_id, public=True)
         rows = conn.execute(
             """
-            SELECT id, quiz_id, position, question, options, correct_option, explanation
+            SELECT id, quiz_id, position, question, options, correct_option, explanation, correct_answer, incorrect_answers
             FROM sunday_quiz_questions
             WHERE quiz_id = ?
             ORDER BY position
@@ -405,16 +429,24 @@ def submit_sunday_quiz_attempt(quiz_id: str, request: SundayQuizAttemptIn) -> di
         review = []
         for row in rows:
             question_id = row[0]
+            correct_answer = row[7]
+            incorrect_answers = _loads_json(row[8], [])
+            option_text_by_id = {
+                _option_id(question_id, answer): answer
+                for answer in [correct_answer, *incorrect_answers]
+            }
             selected = request.answers.get(question_id)
-            correct = row[5]
+            correct = _option_id(question_id, correct_answer)
             is_correct = selected == correct
             score += 1 if is_correct else 0
             review.append(
                 {
                     "question_id": question_id,
                     "position": row[2],
-                    "selected_option": selected,
-                    "correct_option": correct,
+                    "selected_option_id": selected,
+                    "correct_option_id": correct,
+                    "selected_option_text": option_text_by_id.get(selected),
+                    "correct_option_text": correct_answer,
                     "correct": is_correct,
                     "explanation": row[6],
                     "answer_image_url": (assets.get((question_id, "answer")) or {}).get("url"),

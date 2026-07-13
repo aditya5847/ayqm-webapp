@@ -192,7 +192,7 @@ function SundayQuizArchiveTile({ item }: { item: PublicSundayQuizSummary }) {
 export function PublicSundayQuizPlayPage() {
   const { quizId = "" } = useParams();
   const quiz = useQuery({ queryKey: ["public", "sunday-quiz", quizId], queryFn: () => getPublicSundayQuiz(quizId), enabled: Boolean(quizId) });
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const attempt = useMutation({ mutationFn: () => submitSundayQuizAttempt(quizId, answers) });
   const allAnswered = quiz.data ? quiz.data.questions.every(question => answers[question.id] !== undefined) : false;
   useEffect(() => {
@@ -224,10 +224,10 @@ function PublicSundayQuizQuestionCard({
   review
 }: {
   question: PublicSundayQuizQuestion;
-  selected: number | undefined;
+  selected: string | undefined;
   disabled: boolean;
-  onSelect: (value: number) => void;
-  review?: { selected_option: number | null; correct_option: number; correct: boolean; explanation: string | null; answer_image_url: string | null };
+  onSelect: (value: string) => void;
+  review?: { selected_option_id: string | null; correct_option_id: string; selected_option_text: string | null; correct_option_text: string; correct: boolean; explanation: string | null; answer_image_url: string | null };
 }) {
   return <article className={`sunday-question-card${review ? (review.correct ? " correct" : " incorrect") : ""}`}>
     <div className="sunday-question-number">{String(question.position).padStart(2, "0")}</div>
@@ -236,17 +236,17 @@ function PublicSundayQuizQuestionCard({
       <h2>{question.question}</h2>
       <div className="sunday-answer-options">
         {question.options.map((option, index) => {
-          const isCorrect = review?.correct_option === index;
-          const isSelectedWrong = review && review.selected_option === index && !isCorrect;
-          return <label key={index} className={isCorrect ? "is-correct" : isSelectedWrong ? "is-wrong" : selected === index ? "is-selected" : undefined}>
-          <input type="radio" name={question.id} value={index} checked={selected === index} disabled={disabled} onChange={() => onSelect(index)} />
+          const isCorrect = review?.correct_option_id === option.id;
+          const isSelectedWrong = review && review.selected_option_id === option.id && !isCorrect;
+          return <label key={index} className={isCorrect ? "is-correct" : isSelectedWrong ? "is-wrong" : selected === option.id ? "is-selected" : undefined}>
+          <input type="radio" name={question.id} value={option.id} checked={selected === option.id} disabled={disabled} onChange={() => onSelect(option.id)} />
           <span>{String.fromCharCode(65 + index)}</span>
-          <strong>{option}</strong>
+          <strong>{option.text}</strong>
         </label>;
         })}
       </div>
       {review && <div className="sunday-review">
-        <p>{review.correct ? <CheckCircle2 size={18} /> : <XCircle size={18} />}{review.correct ? "Correct" : `Correct answer: ${String.fromCharCode(65 + review.correct_option)}`}</p>
+        <p>{review.correct ? <CheckCircle2 size={18} /> : <XCircle size={18} />}{review.correct ? "Correct" : `Correct answer: ${review.correct_option_text}`}</p>
         {review.explanation && <p>{review.explanation}</p>}
         {apiAssetUrl(review.answer_image_url) && <img src={apiAssetUrl(review.answer_image_url) ?? ""} alt="" />}
       </div>}

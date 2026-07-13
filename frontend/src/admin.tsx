@@ -210,14 +210,14 @@ function QuizDetailsForm({ quiz, onSave, pending }: { quiz: SundayQuiz; onSave: 
 function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: string; question: SundayQuizQuestion; onSaved: () => void }) {
   const [open, setOpen] = useState(question.position === 1);
   const [text, setText] = useState(question.question ?? "");
-  const [options, setOptions] = useState(() => normalizeOptions(question.options));
-  const [correct, setCorrect] = useState(question.correct_option ?? 0);
+  const [correctAnswer, setCorrectAnswer] = useState(question.correct_answer ?? "");
+  const [incorrectAnswers, setIncorrectAnswers] = useState(() => normalizeIncorrectAnswers(question.incorrect_answers));
   const [explanation, setExplanation] = useState(question.explanation ?? "");
   const save = useMutation({
     mutationFn: () => updateSundayQuizQuestion(quizId, question.id, {
       question: text.trim() || null,
-      options,
-      correct_option: correct,
+      correct_answer: correctAnswer.trim() || null,
+      incorrect_answers: incorrectAnswers,
       explanation: explanation.trim() || null
     }),
     onSuccess: () => void onSaved()
@@ -228,11 +228,11 @@ function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: strin
   });
   useEffect(() => {
     setText(question.question ?? "");
-    setOptions(normalizeOptions(question.options));
-    setCorrect(question.correct_option ?? 0);
+    setCorrectAnswer(question.correct_answer ?? "");
+    setIncorrectAnswers(normalizeIncorrectAnswers(question.incorrect_answers));
     setExplanation(question.explanation ?? "");
   }, [question]);
-  const complete = Boolean(text.trim()) && options.every(option => option.trim()) && correct >= 0 && correct <= 3;
+  const complete = Boolean(text.trim()) && Boolean(correctAnswer.trim()) && incorrectAnswers.every(answer => answer.trim());
   return <article className="sunday-question-editor">
     <button className="sunday-question-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
       <ChevronDown size={18} />
@@ -244,10 +244,10 @@ function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: strin
       <form onSubmit={event => { event.preventDefault(); save.mutate(); }}>
         <div className="sunday-question-heading"><p className="eyebrow">Question {question.position}</p><button className="button compact-button" type="submit" disabled={save.isPending}><Save size={15} />Save</button></div>
         <label className="field full"><RequiredLabel>Question</RequiredLabel><textarea rows={3} value={text} onChange={event => setText(event.target.value)} /></label>
+        <label className="field"><RequiredLabel>Correct answer</RequiredLabel><input value={correctAnswer} onChange={event => setCorrectAnswer(event.target.value)} /></label>
         <div className="sunday-options-grid">
-          {options.map((option, index) => <label className="field" key={index}><span>Option {String.fromCharCode(65 + index)}</span><input value={option} onChange={event => setOptions(current => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} /></label>)}
+          {incorrectAnswers.map((answer, index) => <label className="field" key={index}><RequiredLabel>Incorrect answer {index + 1}</RequiredLabel><input value={answer} onChange={event => setIncorrectAnswers(current => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} /></label>)}
         </div>
-        <label className="field"><RequiredLabel>Correct answer</RequiredLabel><select value={correct} onChange={event => setCorrect(Number(event.target.value))}>{options.map((_option, index) => <option key={index} value={index}>{String.fromCharCode(65 + index)}</option>)}</select></label>
         <label className="field full"><span>Explanation</span><textarea rows={2} value={explanation} onChange={event => setExplanation(event.target.value)} /></label>
         <ErrorMessage compact error={save.error ?? upload.error} />
       </form>
@@ -266,8 +266,8 @@ function AssetUploadRow({ label, currentUrl, onFile }: { label: string; currentU
   </label>;
 }
 
-function normalizeOptions(options: string[]): string[] {
-  return [0, 1, 2, 3].map(index => options[index] ?? "");
+function normalizeIncorrectAnswers(answers: string[]): string[] {
+  return [0, 1, 2].map(index => answers[index] ?? "");
 }
 
 export function UploadPage() {
