@@ -13,3 +13,4 @@ Potential future improvements and wishlist items for AYQM.
 - Search feature on Trivia
 - Build an audio player on the website itself
 - Speed up home page latest-episode artwork by adding cached small artwork thumbnails and a lightweight public home endpoint.
+- Let visitors submit trivia for future episodes with a question, answer, optional explanation, optional message, and a tag for Vineeth or Aditya; surface submissions in admin so a host can be selected and shown only their relevant trivia.
