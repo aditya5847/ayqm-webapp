@@ -1,13 +1,16 @@
 import { FormEvent, useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Search, Trash2, Upload, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ChevronDown, ExternalLink, ImagePlus, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Search, Trash2, Upload, Users } from "lucide-react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  createSpeaker, deleteSpeaker, getAdminSession, getRssImport, isUnsupportedFeature,
-  listEpisodes, listSpeakers, loginAdmin, logoutAdmin, searchAdminTrivia, startRssImport, updateSpeaker, uploadEpisode
+  apiAssetUrl,
+  createSpeaker, createSundayQuiz, deleteSpeaker, deleteSundayQuiz, getAdminSession, getRssImport, isUnsupportedFeature,
+  listEpisodes, listSpeakers, listSundayQuizzes, loginAdmin, logoutAdmin, searchAdminTrivia, startRssImport,
+  updateSpeaker, updateSundayQuiz, updateSundayQuizPublication, updateSundayQuizQuestion, uploadEpisode,
+  uploadSundayQuizAsset
 } from "./api";
-import type { AdminTriviaSearchResult, Episode, FeedImport, Speaker } from "./types";
-import { formatDate, triviaAskerName } from "./workflow";
+import type { AdminTriviaSearchResult, Episode, FeedImport, Speaker, SundayQuiz, SundayQuizQuestion } from "./types";
+import { formatDate, formatDateOnly, triviaAskerName } from "./workflow";
 import { ComingSoon, ErrorMessage, Loading, Notice, QueryState, RequiredLabel, StatusPill } from "./ui";
 import logoUrl from "../references/Logo.png";
 
@@ -41,7 +44,7 @@ function AdminLayout() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const logout = useMutation({ mutationFn: logoutAdmin, onSuccess: () => { client.clear(); navigate("/admin/login"); } });
-  return <div className="admin-shell"><aside className="admin-sidebar"><Link className="admin-brand" to="/"><img src={logoUrl} alt="Are You Quizzing Me?" /></Link><p className="workspace-label">Admin workspace</p><nav className="admin-nav" aria-label="Admin navigation"><NavLink to="/admin/episodes"><LayoutDashboard size={18} />Episodes</NavLink><NavLink to="/admin/trivia"><Search size={18} />Trivia</NavLink><NavLink to="/admin/episodes/new"><Upload size={18} />Upload</NavLink><NavLink to="/admin/imports"><Rss size={18} />RSS import</NavLink><NavLink to="/admin/speakers"><Users size={18} />Speakers</NavLink></nav><div className="admin-sidebar-bottom"><Link to="/">View public site <ExternalLink size={15} /></Link><button type="button" onClick={() => logout.mutate()}><LogOut size={16} />Sign out</button></div></aside><main className="admin-main"><Outlet /></main></div>;
+  return <div className="admin-shell"><aside className="admin-sidebar"><Link className="admin-brand" to="/"><img src={logoUrl} alt="Are You Quizzing Me?" /></Link><p className="workspace-label">Admin workspace</p><nav className="admin-nav" aria-label="Admin navigation"><NavLink to="/admin/episodes"><LayoutDashboard size={18} />Episodes</NavLink><NavLink to="/admin/trivia"><Search size={18} />Trivia</NavLink><NavLink to="/admin/sunday-quizzes"><CalendarDays size={18} />Sunday Quiz</NavLink><NavLink to="/admin/episodes/new"><Upload size={18} />Upload</NavLink><NavLink to="/admin/imports"><Rss size={18} />RSS import</NavLink><NavLink to="/admin/speakers"><Users size={18} />Speakers</NavLink></nav><div className="admin-sidebar-bottom"><Link to="/">View public site <ExternalLink size={15} /></Link><button type="button" onClick={() => logout.mutate()}><LogOut size={16} />Sign out</button></div></aside><main className="admin-main"><Outlet /></main></div>;
 }
 
 export function RssImportPage() {
@@ -99,6 +102,172 @@ export function AdminTriviaSearchPage() {
     setSearchParams(next ? { q: next } : {});
   }
   return <AdminPage title="Trivia search"><form className="inline-form search-form" onSubmit={submit}><input aria-label="Search trivia" placeholder="Search questions, answers, or keywords" value={draft} onChange={event => setDraft(event.target.value)} /><button className="button primary" type="submit" disabled={!draft.trim()}><Search size={16} />Search</button></form>{!query ? <Notice>Search across all trivia, including unpublished episodes.</Notice> : <QueryState query={results} feature="Trivia search">{page => page.items.length ? <><TriviaSearchPagination page={page.page} totalPages={page.total_pages} query={query} setSearchParams={setSearchParams} /><div className="admin-trivia-results">{page.items.map(item => <AdminTriviaSearchResultCard key={item.id} item={item} />)}</div><TriviaSearchPagination page={page.page} totalPages={page.total_pages} query={query} setSearchParams={setSearchParams} /></> : <Notice>No trivia matched "{query}".</Notice>}</QueryState>}</AdminPage>;
+}
+
+export function SundayQuizAdminPage() {
+  const client = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [theme, setTheme] = useState("");
+  const [quizDate, setQuizDate] = useState("");
+  const selectedId = searchParams.get("quiz");
+  const quizzes = useQuery({ queryKey: ["admin", "sunday-quizzes"], queryFn: listSundayQuizzes });
+  const selected = quizzes.data?.find(item => item.id === selectedId) ?? quizzes.data?.[0] ?? null;
+
+  useEffect(() => {
+    if (!selectedId && selected?.id) setSearchParams({ quiz: selected.id }, { replace: true });
+  }, [selected?.id, selectedId, setSearchParams]);
+
+  const refresh = () => client.invalidateQueries({ queryKey: ["admin", "sunday-quizzes"] });
+  const create = useMutation({
+    mutationFn: () => createSundayQuiz({ quiz_date: quizDate, theme }),
+    onSuccess: item => {
+      setTheme("");
+      setQuizDate("");
+      void refresh();
+      setSearchParams({ quiz: item.id });
+    }
+  });
+  const updateDetails = useMutation({
+    mutationFn: (item: SundayQuiz) => updateSundayQuiz(item.id, { quiz_date: item.quiz_date, theme: item.theme }),
+    onSuccess: () => void refresh()
+  });
+  const uploadCover = useMutation({
+    mutationFn: ({ quiz, file }: { quiz: SundayQuiz; file: File }) => uploadSundayQuizAsset(quiz.id, "cover", file),
+    onSuccess: () => void refresh()
+  });
+  const publish = useMutation({
+    mutationFn: ({ quiz, visible }: { quiz: SundayQuiz; visible: boolean }) => updateSundayQuizPublication(quiz.id, visible),
+    onSuccess: () => void refresh()
+  });
+  const remove = useMutation({
+    mutationFn: (quiz: SundayQuiz) => deleteSundayQuiz(quiz.id),
+    onSuccess: () => {
+      setSearchParams({});
+      void refresh();
+    }
+  });
+
+  function submitCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (theme.trim() && quizDate) create.mutate();
+  }
+
+  return <AdminPage title="Sunday Quiz">
+    <form className="inline-form sunday-quiz-create" onSubmit={submitCreate}>
+      <input aria-label="Sunday quiz date" type="date" value={quizDate} onChange={event => setQuizDate(event.target.value)} required />
+      <input aria-label="Sunday quiz theme" placeholder="Theme" value={theme} onChange={event => setTheme(event.target.value)} required />
+      <button className="button primary" type="submit" disabled={create.isPending || !theme.trim() || !quizDate}><Plus size={16} />Create</button>
+    </form>
+    <ErrorMessage error={create.error ?? quizzes.error} />
+    <QueryState query={quizzes} feature="Sunday Quiz admin" empty="No Sunday quizzes yet.">
+      {items => <div className="sunday-admin-layout">
+        <aside className="sunday-quiz-list" aria-label="Sunday quizzes">
+          {items.map(item => <button key={item.id} type="button" aria-pressed={item.id === selected?.id} onClick={() => setSearchParams({ quiz: item.id })}>
+            <span>{formatDateOnly(item.quiz_date)}</span>
+            <strong>{item.theme}</strong>
+            <StatusPill value={item.status} />
+          </button>)}
+        </aside>
+        {selected && <section className="sunday-editor">
+          <div className="sunday-editor-heading">
+            <div>
+              <p className="eyebrow">{selected.question_count} question slots</p>
+              <h2>{selected.theme}</h2>
+            </div>
+            <div className="form-actions">
+              <button className="button" type="button" onClick={() => publish.mutate({ quiz: selected, visible: selected.status !== "published" })} disabled={publish.isPending}>
+                {selected.status === "published" ? "Unpublish" : "Publish"}
+              </button>
+              <button className="button destructive" type="button" onClick={() => remove.mutate(selected)} disabled={remove.isPending}><Trash2 size={16} />Delete</button>
+            </div>
+          </div>
+          <QuizDetailsForm quiz={selected} onSave={updateDetails.mutate} pending={updateDetails.isPending} />
+          <AssetUploadRow label="Cover image" currentUrl={selected.cover_image_url} onFile={file => uploadCover.mutate({ quiz: selected, file })} />
+          <ErrorMessage error={updateDetails.error ?? uploadCover.error ?? publish.error ?? remove.error} />
+          <div className="sunday-question-list">
+            {selected.questions.map(question => <SundayQuizQuestionEditor key={question.id} quizId={selected.id} question={question} onSaved={refresh} />)}
+          </div>
+        </section>}
+      </div>}
+    </QueryState>
+  </AdminPage>;
+}
+
+function QuizDetailsForm({ quiz, onSave, pending }: { quiz: SundayQuiz; onSave: (quiz: SundayQuiz) => void; pending: boolean }) {
+  const [theme, setTheme] = useState(quiz.theme);
+  const [date, setDate] = useState(quiz.quiz_date);
+  useEffect(() => {
+    setTheme(quiz.theme);
+    setDate(quiz.quiz_date);
+  }, [quiz.id, quiz.quiz_date, quiz.theme]);
+  return <form className="sunday-detail-form" onSubmit={event => { event.preventDefault(); onSave({ ...quiz, theme, quiz_date: date }); }}>
+    <label className="field"><RequiredLabel>Date</RequiredLabel><input type="date" value={date} onChange={event => setDate(event.target.value)} required /></label>
+    <label className="field"><RequiredLabel>Theme</RequiredLabel><input value={theme} onChange={event => setTheme(event.target.value)} required /></label>
+    <button className="button" type="submit" disabled={pending || !theme.trim() || !date}><Save size={16} />Save details</button>
+  </form>;
+}
+
+function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: string; question: SundayQuizQuestion; onSaved: () => void }) {
+  const [open, setOpen] = useState(question.position === 1);
+  const [text, setText] = useState(question.question ?? "");
+  const [options, setOptions] = useState(() => normalizeOptions(question.options));
+  const [correct, setCorrect] = useState(question.correct_option ?? 0);
+  const [explanation, setExplanation] = useState(question.explanation ?? "");
+  const save = useMutation({
+    mutationFn: () => updateSundayQuizQuestion(quizId, question.id, {
+      question: text.trim() || null,
+      options,
+      correct_option: correct,
+      explanation: explanation.trim() || null
+    }),
+    onSuccess: () => void onSaved()
+  });
+  const upload = useMutation({
+    mutationFn: ({ kind, file }: { kind: "question" | "answer"; file: File }) => uploadSundayQuizAsset(quizId, kind, file, question.id),
+    onSuccess: () => void onSaved()
+  });
+  useEffect(() => {
+    setText(question.question ?? "");
+    setOptions(normalizeOptions(question.options));
+    setCorrect(question.correct_option ?? 0);
+    setExplanation(question.explanation ?? "");
+  }, [question]);
+  const complete = Boolean(text.trim()) && options.every(option => option.trim()) && correct >= 0 && correct <= 3;
+  return <article className="sunday-question-editor">
+    <button className="sunday-question-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+      <ChevronDown size={18} />
+      <span>Question {question.position}</span>
+      <strong>{text.trim() || "Untitled question"}</strong>
+      <StatusPill value={complete ? "complete" : "draft"} />
+    </button>
+    {open && <div className="sunday-question-panel">
+      <form onSubmit={event => { event.preventDefault(); save.mutate(); }}>
+        <div className="sunday-question-heading"><p className="eyebrow">Question {question.position}</p><button className="button compact-button" type="submit" disabled={save.isPending}><Save size={15} />Save</button></div>
+        <label className="field full"><RequiredLabel>Question</RequiredLabel><textarea rows={3} value={text} onChange={event => setText(event.target.value)} /></label>
+        <div className="sunday-options-grid">
+          {options.map((option, index) => <label className="field" key={index}><span>Option {String.fromCharCode(65 + index)}</span><input value={option} onChange={event => setOptions(current => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} /></label>)}
+        </div>
+        <label className="field"><RequiredLabel>Correct answer</RequiredLabel><select value={correct} onChange={event => setCorrect(Number(event.target.value))}>{options.map((_option, index) => <option key={index} value={index}>{String.fromCharCode(65 + index)}</option>)}</select></label>
+        <label className="field full"><span>Explanation</span><textarea rows={2} value={explanation} onChange={event => setExplanation(event.target.value)} /></label>
+        <ErrorMessage compact error={save.error ?? upload.error} />
+      </form>
+      <div className="sunday-asset-grid">
+        <AssetUploadRow label="Question image" currentUrl={question.question_image_url} onFile={file => upload.mutate({ kind: "question", file })} />
+        <AssetUploadRow label="Answer image" currentUrl={question.answer_image_url} onFile={file => upload.mutate({ kind: "answer", file })} />
+      </div>
+    </div>}
+  </article>;
+}
+
+function AssetUploadRow({ label, currentUrl, onFile }: { label: string; currentUrl: string | null; onFile: (file: File) => void }) {
+  return <label className="asset-upload-row">
+    {currentUrl ? <img src={apiAssetUrl(currentUrl) ?? currentUrl} alt="" /> : <span><ImagePlus size={18} /></span>}
+    <div><strong>{label}</strong><input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) onFile(file); event.currentTarget.value = ""; }} /></div>
+  </label>;
+}
+
+function normalizeOptions(options: string[]): string[] {
+  return [0, 1, 2, 3].map(index => options[index] ?? "");
 }
 
 export function UploadPage() {

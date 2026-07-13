@@ -11,6 +11,8 @@ from .routes.jobs import router as jobs_router
 from .routes.imports import router as imports_router
 from .routes.public import router as public_router
 from .routes.speakers import router as speakers_router
+from .routes.sunday_quizzes import admin_router as sunday_quiz_admin_router
+from .routes.sunday_quizzes import public_router as sunday_quiz_public_router
 from .routes.trivia import router as trivia_router
 from .routes.worker import router as worker_router
 from .services.rss_import import resume_pending_feed_imports
@@ -48,8 +50,10 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router)
     app.include_router(imports_router)
     app.include_router(speakers_router)
+    app.include_router(sunday_quiz_admin_router)
     app.include_router(trivia_router)
     app.include_router(public_router)
+    app.include_router(sunday_quiz_public_router)
     app.include_router(worker_router)
 
     @app.get("/health")

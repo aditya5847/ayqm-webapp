@@ -194,6 +194,60 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                 """
             )
             conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sunday_quizzes (
+                    id VARCHAR PRIMARY KEY,
+                    quiz_date DATE NOT NULL,
+                    theme VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL DEFAULT 'draft',
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sunday_quiz_questions (
+                    id VARCHAR PRIMARY KEY,
+                    quiz_id VARCHAR NOT NULL,
+                    position INTEGER NOT NULL,
+                    question VARCHAR,
+                    options JSON NOT NULL DEFAULT '[]',
+                    correct_option INTEGER,
+                    explanation VARCHAR,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    UNIQUE(quiz_id, position)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sunday_quiz_assets (
+                    id VARCHAR PRIMARY KEY,
+                    quiz_id VARCHAR NOT NULL,
+                    question_id VARCHAR,
+                    kind VARCHAR NOT NULL,
+                    object_key VARCHAR NOT NULL,
+                    content_type VARCHAR,
+                    size_bytes BIGINT,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sunday_quiz_attempts (
+                    id VARCHAR PRIMARY KEY,
+                    quiz_id VARCHAR NOT NULL,
+                    score INTEGER NOT NULL,
+                    total_questions INTEGER NOT NULL,
+                    selected_answers JSON NOT NULL,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+            conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS episodes_rss_guid_idx ON episodes(rss_guid)"
             )
         finally:

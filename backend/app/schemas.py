@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
@@ -273,6 +273,98 @@ class PublicEpisodePageOut(BaseModel):
     page_size: int
     total_items: int
     total_pages: int
+
+
+class SundayQuizCreate(BaseModel):
+    quiz_date: date
+    theme: str = Field(min_length=1)
+
+
+class SundayQuizUpdate(BaseModel):
+    quiz_date: date | None = None
+    theme: str | None = Field(default=None, min_length=1)
+
+
+class SundayQuizQuestionUpdate(BaseModel):
+    question: str | None = None
+    options: list[str] | None = None
+    correct_option: int | None = Field(default=None, ge=0, le=3)
+    explanation: str | None = None
+
+
+class SundayQuizPublicationUpdate(BaseModel):
+    is_published: bool
+
+
+class SundayQuizAssetOut(BaseModel):
+    id: str
+    kind: str
+    url: str
+    content_type: str | None = None
+    size_bytes: int | None = None
+
+
+class SundayQuizQuestionOut(BaseModel):
+    id: str
+    position: int
+    question: str | None = None
+    options: list[str] = Field(default_factory=list)
+    correct_option: int | None = None
+    explanation: str | None = None
+    question_image_url: str | None = None
+    answer_image_url: str | None = None
+
+
+class SundayQuizOut(BaseModel):
+    id: str
+    quiz_date: date
+    theme: str
+    status: str
+    cover_image_url: str | None = None
+    question_count: int
+    questions: list[SundayQuizQuestionOut] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublicSundayQuizSummaryOut(BaseModel):
+    id: str
+    quiz_date: date
+    theme: str
+    question_count: int
+    cover_image_url: str | None = None
+
+
+class PublicSundayQuizQuestionOut(BaseModel):
+    id: str
+    position: int
+    question: str
+    options: list[str]
+    question_image_url: str | None = None
+
+
+class PublicSundayQuizDetailOut(PublicSundayQuizSummaryOut):
+    questions: list[PublicSundayQuizQuestionOut]
+
+
+class SundayQuizAttemptIn(BaseModel):
+    answers: dict[str, int]
+
+
+class SundayQuizAnswerReviewOut(BaseModel):
+    question_id: str
+    position: int
+    selected_option: int | None = None
+    correct_option: int
+    correct: bool
+    explanation: str | None = None
+    answer_image_url: str | None = None
+
+
+class SundayQuizAttemptOut(BaseModel):
+    score: int
+    total: int
+    review: list[SundayQuizAnswerReviewOut]
 
 
 class WorkerProgress(BaseModel):

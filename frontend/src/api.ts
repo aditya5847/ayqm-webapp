@@ -11,10 +11,17 @@ import type {
   JobAccepted,
   PublicEpisode,
   PublicEpisodePage,
+  PublicSundayQuizDetail,
+  PublicSundayQuizSummary,
   PublicSpeaker,
   Speaker,
   SpeakerLabels,
   SpeakerMappingResponse,
+  SundayQuiz,
+  SundayQuizCreateInput,
+  SundayQuizQuestion,
+  SundayQuizQuestionInput,
+  SundayQuizAttemptResult,
   TranscriptResponse,
   TriviaItem,
   TriviaRephraseSuggestion,
@@ -105,6 +112,24 @@ export async function getPublicEpisode(episodeId: string): Promise<PublicEpisode
 
 export async function getPublicEpisodeTrivia(episodeId: string): Promise<TriviaItem[]> {
   return request<TriviaItem[]>(`/public/episodes/${episodeId}/trivia`);
+}
+
+export async function listPublicSundayQuizzes(): Promise<PublicSundayQuizSummary[]> {
+  return request<PublicSundayQuizSummary[]>("/public/sunday-quizzes");
+}
+
+export async function getPublicSundayQuiz(quizId: string): Promise<PublicSundayQuizDetail> {
+  return request<PublicSundayQuizDetail>(`/public/sunday-quizzes/${quizId}`);
+}
+
+export async function submitSundayQuizAttempt(
+  quizId: string,
+  answers: Record<string, number>
+): Promise<SundayQuizAttemptResult> {
+  return request<SundayQuizAttemptResult>(`/public/sunday-quizzes/${quizId}/attempts`, {
+    method: "POST",
+    body: JSON.stringify({ answers })
+  });
 }
 
 export async function listPublicTrivia(limit = 24, offset = 0): Promise<TriviaItem[]> {
@@ -252,6 +277,62 @@ export async function updateTriviaItem(triviaId: string, input: TriviaUpdateInpu
 
 export async function deleteTriviaItem(triviaId: string): Promise<void> {
   await request<void>(`/trivia/${triviaId}`, { method: "DELETE" });
+}
+
+export async function listSundayQuizzes(): Promise<SundayQuiz[]> {
+  return request<SundayQuiz[]>("/sunday-quizzes");
+}
+
+export async function createSundayQuiz(input: SundayQuizCreateInput): Promise<SundayQuiz> {
+  return request<SundayQuiz>("/sunday-quizzes", {
+    method: "POST",
+    body: JSON.stringify({ quiz_date: input.quiz_date, theme: input.theme.trim() })
+  });
+}
+
+export async function updateSundayQuiz(quizId: string, input: SundayQuizCreateInput): Promise<SundayQuiz> {
+  return request<SundayQuiz>(`/sunday-quizzes/${quizId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ quiz_date: input.quiz_date, theme: input.theme.trim() })
+  });
+}
+
+export async function updateSundayQuizQuestion(
+  quizId: string,
+  questionId: string,
+  input: SundayQuizQuestionInput
+): Promise<SundayQuizQuestion> {
+  return request<SundayQuizQuestion>(`/sunday-quizzes/${quizId}/questions/${questionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function uploadSundayQuizAsset(
+  quizId: string,
+  kind: "cover" | "question" | "answer",
+  file: File,
+  questionId?: string
+): Promise<SundayQuiz> {
+  const form = new FormData();
+  form.set("kind", kind);
+  form.set("file", file);
+  if (questionId) form.set("question_id", questionId);
+  return request<SundayQuiz>(`/sunday-quizzes/${quizId}/assets`, {
+    method: "POST",
+    body: form
+  });
+}
+
+export async function updateSundayQuizPublication(quizId: string, isPublished: boolean): Promise<SundayQuiz> {
+  return request<SundayQuiz>(`/sunday-quizzes/${quizId}/publication`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_published: isPublished })
+  });
+}
+
+export async function deleteSundayQuiz(quizId: string): Promise<void> {
+  await request<void>(`/sunday-quizzes/${quizId}`, { method: "DELETE" });
 }
 
 export async function rephraseTriviaItem(triviaId: string): Promise<TriviaRephraseSuggestion> {
