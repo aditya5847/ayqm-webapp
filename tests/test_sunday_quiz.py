@@ -2,24 +2,24 @@ from io import BytesIO
 
 
 def _fill_and_publish_quiz(client, quiz):
-    answers = {}
     for question in quiz["questions"]:
-        options = [f"Option {question['position']}{letter}" for letter in ["A", "B", "C", "D"]]
         response = client.patch(
             f"/sunday-quizzes/{quiz['id']}/questions/{question['id']}",
             json={
                 "question": f"Question {question['position']}?",
-                "options": options,
-                "correct_option": 1,
+                "correct_answer": f"Correct {question['position']}",
+                "incorrect_answers": [
+                    f"Wrong {question['position']}A",
+                    f"Wrong {question['position']}B",
+                    f"Wrong {question['position']}C",
+                ],
                 "explanation": f"Explanation {question['position']}",
             },
         )
         assert response.status_code == 200
-        answers[question["id"]] = 1
     response = client.patch(f"/sunday-quizzes/{quiz['id']}/publication", json={"is_published": True})
     assert response.status_code == 200
     assert response.json()["status"] == "published"
-    return answers
 
 
 def test_sunday_quiz_admin_requires_auth(unauth_client):
@@ -39,7 +39,7 @@ def test_sunday_quiz_create_validate_publish_and_play(client):
     assert response.status_code == 422
     assert "publish_errors" in response.json()["detail"]
 
-    answers = _fill_and_publish_quiz(client, quiz)
+    _fill_and_publish_quiz(client, quiz)
 
     response = client.get("/public/sunday-quizzes")
     assert response.status_code == 200
@@ -49,17 +49,32 @@ def test_sunday_quiz_create_validate_publish_and_play(client):
     assert response.status_code == 200
     public_quiz = response.json()
     assert public_quiz["question_count"] == 10
-    assert "correct_option" not in public_quiz["questions"][0]
+    assert "correct_answer" not in public_quiz["questions"][0]
     assert "explanation" not in public_quiz["questions"][0]
+    assert set(public_quiz["questions"][0]["options"][0]) == {"id", "text"}
+    first_order = [option["text"] for option in public_quiz["questions"][0]["options"]]
+    seen_orders = {tuple(first_order)}
+    for _ in range(8):
+        response = client.get(f"/public/sunday-quizzes/{quiz['id']}")
+        assert response.status_code == 200
+        seen_orders.add(tuple(option["text"] for option in response.json()["questions"][0]["options"]))
+    assert len(seen_orders) > 1
 
-    wrong_question_id = public_quiz["questions"][0]["id"]
-    answers[wrong_question_id] = 0
+    answers = {}
+    for index, question in enumerate(public_quiz["questions"]):
+        correct_option = next(option for option in question["options"] if option["text"] == f"Correct {question['position']}")
+        if index == 0:
+            wrong_option = next(option for option in question["options"] if option["id"] != correct_option["id"])
+            answers[question["id"]] = wrong_option["id"]
+        else:
+            answers[question["id"]] = correct_option["id"]
     response = client.post(f"/public/sunday-quizzes/{quiz['id']}/attempts", json={"answers": answers})
     assert response.status_code == 200
     result = response.json()
     assert result["score"] == 9
     assert result["total"] == 10
-    assert result["review"][0]["correct_option"] == 1
+    assert result["review"][0]["correct_option_text"] == "Correct 1"
+    assert result["review"][0]["selected_option_text"] != "Correct 1"
     assert result["review"][0]["explanation"] == "Explanation 1"
 
 

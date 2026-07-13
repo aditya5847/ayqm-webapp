@@ -224,8 +224,8 @@ export interface SundayQuizQuestion {
   id: string;
   position: number;
   question: string | null;
-  options: string[];
-  correct_option: number | null;
+  correct_answer: string | null;
+  incorrect_answers: string[];
   explanation: string | null;
   question_image_url: string | null;
   answer_image_url: string | null;
@@ -250,8 +250,8 @@ export interface SundayQuizCreateInput {
 
 export interface SundayQuizQuestionInput {
   question: string | null;
-  options: string[];
-  correct_option: number | null;
+  correct_answer: string | null;
+  incorrect_answers: string[];
   explanation: string | null;
 }
 
@@ -263,11 +263,16 @@ export interface PublicSundayQuizSummary {
   cover_image_url: string | null;
 }
 
+export interface PublicSundayQuizOption {
+  id: string;
+  text: string;
+}
+
 export interface PublicSundayQuizQuestion {
   id: string;
   position: number;
   question: string;
-  options: string[];
+  options: PublicSundayQuizOption[];
   question_image_url: string | null;
 }
 
@@ -278,8 +283,10 @@ export interface PublicSundayQuizDetail extends PublicSundayQuizSummary {
 export interface SundayQuizAnswerReview {
   question_id: string;
   position: number;
-  selected_option: number | null;
-  correct_option: number;
+  selected_option_id: string | null;
+  correct_option_id: string;
+  selected_option_text: string | null;
+  correct_option_text: string;
   correct: boolean;
   explanation: string | null;
   answer_image_url: string | null;

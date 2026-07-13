@@ -198,8 +198,8 @@ describe("public experience", () => {
           score: 1,
           total: 2,
           review: [
-            { question_id: "sq-1", position: 1, selected_option: 1, correct_option: 1, correct: true, explanation: "It was published first.", answer_image_url: null },
-            { question_id: "sq-2", position: 2, selected_option: 0, correct_option: 2, correct: false, explanation: "The third option was correct.", answer_image_url: null }
+            { question_id: "sq-1", position: 1, selected_option_id: "sq-1-mercury", correct_option_id: "sq-1-mercury", selected_option_text: "Mercury", correct_option_text: "Mercury", correct: true, explanation: "It was published first.", answer_image_url: null },
+            { question_id: "sq-2", position: 2, selected_option_id: "sq-2-venus", correct_option_id: "sq-2-neptune", selected_option_text: "Venus", correct_option_text: "Neptune", correct: false, explanation: "The third option was correct.", answer_image_url: null }
           ]
         });
       }
@@ -218,7 +218,7 @@ describe("public experience", () => {
 
     expect(await screen.findByText("You scored 1/2")).toBeInTheDocument();
     expect(screen.getByText("It was published first.")).toBeInTheDocument();
-    expect(screen.getByText("Correct answer: C")).toBeInTheDocument();
+    expect(screen.getByText("Correct answer: Neptune")).toBeInTheDocument();
   });
 });
 
@@ -318,8 +318,18 @@ function sundayQuiz() {
     question_count: 2,
     cover_image_url: null,
     questions: [
-      { id: "sq-1", position: 1, question: "Closest planet to the sun?", options: ["Mars", "Mercury", "Jupiter", "Saturn"], question_image_url: null },
-      { id: "sq-2", position: 2, question: "Second test question?", options: ["Venus", "Earth", "Neptune", "Uranus"], question_image_url: null }
+      { id: "sq-1", position: 1, question: "Closest planet to the sun?", options: [
+        { id: "sq-1-mars", text: "Mars" },
+        { id: "sq-1-mercury", text: "Mercury" },
+        { id: "sq-1-jupiter", text: "Jupiter" },
+        { id: "sq-1-saturn", text: "Saturn" }
+      ], question_image_url: null },
+      { id: "sq-2", position: 2, question: "Second test question?", options: [
+        { id: "sq-2-venus", text: "Venus" },
+        { id: "sq-2-earth", text: "Earth" },
+        { id: "sq-2-neptune", text: "Neptune" },
+        { id: "sq-2-uranus", text: "Uranus" }
+      ], question_image_url: null }
     ]
   };
 }

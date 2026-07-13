@@ -124,7 +124,7 @@ export async function getPublicSundayQuiz(quizId: string): Promise<PublicSundayQ
 
 export async function submitSundayQuizAttempt(
   quizId: string,
-  answers: Record<string, number>
+  answers: Record<string, string>
 ): Promise<SundayQuizAttemptResult> {
   return request<SundayQuizAttemptResult>(`/public/sunday-quizzes/${quizId}/attempts`, {
     method: "POST",

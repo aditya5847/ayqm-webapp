@@ -287,8 +287,8 @@ class SundayQuizUpdate(BaseModel):
 
 class SundayQuizQuestionUpdate(BaseModel):
     question: str | None = None
-    options: list[str] | None = None
-    correct_option: int | None = Field(default=None, ge=0, le=3)
+    correct_answer: str | None = None
+    incorrect_answers: list[str] | None = None
     explanation: str | None = None
 
 
@@ -308,8 +308,8 @@ class SundayQuizQuestionOut(BaseModel):
     id: str
     position: int
     question: str | None = None
-    options: list[str] = Field(default_factory=list)
-    correct_option: int | None = None
+    correct_answer: str | None = None
+    incorrect_answers: list[str] = Field(default_factory=list)
     explanation: str | None = None
     question_image_url: str | None = None
     answer_image_url: str | None = None
@@ -335,11 +335,16 @@ class PublicSundayQuizSummaryOut(BaseModel):
     cover_image_url: str | None = None
 
 
+class PublicSundayQuizOptionOut(BaseModel):
+    id: str
+    text: str
+
+
 class PublicSundayQuizQuestionOut(BaseModel):
     id: str
     position: int
     question: str
-    options: list[str]
+    options: list[PublicSundayQuizOptionOut]
     question_image_url: str | None = None
 
 
@@ -348,14 +353,16 @@ class PublicSundayQuizDetailOut(PublicSundayQuizSummaryOut):
 
 
 class SundayQuizAttemptIn(BaseModel):
-    answers: dict[str, int]
+    answers: dict[str, str]
 
 
 class SundayQuizAnswerReviewOut(BaseModel):
     question_id: str
     position: int
-    selected_option: int | None = None
-    correct_option: int
+    selected_option_id: str | None = None
+    correct_option_id: str
+    selected_option_text: str | None = None
+    correct_option_text: str
     correct: bool
     explanation: str | None = None
     answer_image_url: str | None = None
