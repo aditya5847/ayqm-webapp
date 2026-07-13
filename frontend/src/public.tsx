@@ -232,8 +232,10 @@ function PublicSundayQuizQuestionCard({
   return <article className={`sunday-question-card${review ? (review.correct ? " correct" : " incorrect") : ""}`}>
     <div className="sunday-question-number">{String(question.position).padStart(2, "0")}</div>
     <div className="sunday-question-body">
-      {apiAssetUrl(question.question_image_url) && <img className="sunday-question-image" src={apiAssetUrl(question.question_image_url) ?? ""} alt="" />}
-      <h2>{question.question}</h2>
+      <div className="sunday-question-prompt">
+        <h2>{question.question}</h2>
+        {apiAssetUrl(question.question_image_url) && <img className="sunday-question-image" src={apiAssetUrl(question.question_image_url) ?? ""} alt="" />}
+      </div>
       <div className="sunday-answer-options">
         {question.options.map((option, index) => {
           const isCorrect = review?.correct_option_id === option.id;

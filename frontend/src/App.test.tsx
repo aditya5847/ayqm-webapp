@@ -273,6 +273,26 @@ describe("admin experience", () => {
     expect(screen.getByText("hidden")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Unpublished comet episode" })).toHaveAttribute("href", "/admin/episodes/episode-1/trivia");
   });
+
+  it("preserves unsaved Sunday Quiz question text while uploading an image", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/auth/session")) return jsonResponse({ authenticated: true });
+      if (url.endsWith("/sunday-quizzes/quiz-1/assets") && init?.method === "POST") return jsonResponse(adminSundayQuiz("/sunday-quizzes/assets/asset-1"));
+      if (url.endsWith("/sunday-quizzes")) return jsonResponse([adminSundayQuiz()]);
+      return jsonResponse({ detail: "Not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/admin/sunday-quizzes?quiz=quiz-1");
+
+    const question = (await screen.findAllByLabelText(/^Question/))[0];
+    fireEvent.change(question, { target: { value: "Unsaved image question?" } });
+    const upload = screen.getByLabelText(/Question image/) as HTMLInputElement;
+    fireEvent.change(upload, { target: { files: [new File(["image"], "question.png", { type: "image/png" })] } });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/sunday-quizzes/quiz-1/assets"), expect.objectContaining({ method: "POST" })));
+    expect(screen.getByDisplayValue("Unsaved image question?")).toBeInTheDocument();
+  });
 });
 
 function renderApp(path: string) {
@@ -331,6 +351,29 @@ function sundayQuiz() {
         { id: "sq-2-uranus", text: "Uranus" }
       ], question_image_url: null }
     ]
+  };
+}
+
+function adminSundayQuiz(questionImageUrl: string | null = null) {
+  return {
+    id: "quiz-1",
+    quiz_date: "2026-01-04",
+    theme: "Space",
+    status: "draft",
+    cover_image_url: null,
+    question_count: 1,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    questions: [{
+      id: "sq-1",
+      position: 1,
+      question: null,
+      correct_answer: null,
+      incorrect_answers: [],
+      explanation: null,
+      question_image_url: questionImageUrl,
+      answer_image_url: null
+    }]
   };
 }
 
