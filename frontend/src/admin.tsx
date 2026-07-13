@@ -213,6 +213,7 @@ function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: strin
   const [correctAnswer, setCorrectAnswer] = useState(question.correct_answer ?? "");
   const [incorrectAnswers, setIncorrectAnswers] = useState(() => normalizeIncorrectAnswers(question.incorrect_answers));
   const [explanation, setExplanation] = useState(question.explanation ?? "");
+  const [dirty, setDirty] = useState(false);
   const save = useMutation({
     mutationFn: () => updateSundayQuizQuestion(quizId, question.id, {
       question: text.trim() || null,
@@ -220,18 +221,33 @@ function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: strin
       incorrect_answers: incorrectAnswers,
       explanation: explanation.trim() || null
     }),
-    onSuccess: () => void onSaved()
+    onSuccess: () => {
+      setDirty(false);
+      void onSaved();
+    }
   });
   const upload = useMutation({
     mutationFn: ({ kind, file }: { kind: "question" | "answer"; file: File }) => uploadSundayQuizAsset(quizId, kind, file, question.id),
     onSuccess: () => void onSaved()
   });
   useEffect(() => {
+    if (dirty) return;
     setText(question.question ?? "");
     setCorrectAnswer(question.correct_answer ?? "");
     setIncorrectAnswers(normalizeIncorrectAnswers(question.incorrect_answers));
     setExplanation(question.explanation ?? "");
-  }, [question]);
+  }, [dirty, question]);
+  useEffect(() => {
+    setDirty(false);
+    setText(question.question ?? "");
+    setCorrectAnswer(question.correct_answer ?? "");
+    setIncorrectAnswers(normalizeIncorrectAnswers(question.incorrect_answers));
+    setExplanation(question.explanation ?? "");
+  }, [question.id]);
+  const updateIncorrectAnswer = (index: number, value: string) => {
+    setDirty(true);
+    setIncorrectAnswers(current => current.map((item, itemIndex) => itemIndex === index ? value : item));
+  };
   const complete = Boolean(text.trim()) && Boolean(correctAnswer.trim()) && incorrectAnswers.every(answer => answer.trim());
   return <article className="sunday-question-editor">
     <button className="sunday-question-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
@@ -243,12 +259,12 @@ function SundayQuizQuestionEditor({ quizId, question, onSaved }: { quizId: strin
     {open && <div className="sunday-question-panel">
       <form onSubmit={event => { event.preventDefault(); save.mutate(); }}>
         <div className="sunday-question-heading"><p className="eyebrow">Question {question.position}</p><button className="button compact-button" type="submit" disabled={save.isPending}><Save size={15} />Save</button></div>
-        <label className="field full"><RequiredLabel>Question</RequiredLabel><textarea rows={3} value={text} onChange={event => setText(event.target.value)} /></label>
-        <label className="field"><RequiredLabel>Correct answer</RequiredLabel><input value={correctAnswer} onChange={event => setCorrectAnswer(event.target.value)} /></label>
+        <label className="field full"><RequiredLabel>Question</RequiredLabel><textarea rows={3} value={text} onChange={event => { setDirty(true); setText(event.target.value); }} /></label>
+        <label className="field"><RequiredLabel>Correct answer</RequiredLabel><input value={correctAnswer} onChange={event => { setDirty(true); setCorrectAnswer(event.target.value); }} /></label>
         <div className="sunday-options-grid">
-          {incorrectAnswers.map((answer, index) => <label className="field" key={index}><RequiredLabel>Incorrect answer {index + 1}</RequiredLabel><input value={answer} onChange={event => setIncorrectAnswers(current => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} /></label>)}
+          {incorrectAnswers.map((answer, index) => <label className="field" key={index}><RequiredLabel>Incorrect answer {index + 1}</RequiredLabel><input value={answer} onChange={event => updateIncorrectAnswer(index, event.target.value)} /></label>)}
         </div>
-        <label className="field full"><span>Explanation</span><textarea rows={2} value={explanation} onChange={event => setExplanation(event.target.value)} /></label>
+        <label className="field full"><span>Explanation</span><textarea rows={2} value={explanation} onChange={event => { setDirty(true); setExplanation(event.target.value); }} /></label>
         <ErrorMessage compact error={save.error ?? upload.error} />
       </form>
       <div className="sunday-asset-grid">
