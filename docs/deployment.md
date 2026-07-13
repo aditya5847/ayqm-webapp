@@ -165,21 +165,26 @@ Upload or import the episode through production admin, click **Transcribe**, and
 then run one queued job locally:
 
 ```sh
-HF_TOKEN=<token> /Users/adityasrivastava/.local/bin/uv run ayqm-worker \
-  --api-url https://api.example.com \
-  --token '<worker-token>' \
+export AYQM_API_URL='https://api.example.com'
+export AYQM_WORKER_TOKEN='<worker-token>'
+export HF_TOKEN='<token>'
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/ffmpeg@7/lib
+
+/Users/adityasrivastava/.local/bin/uv run ayqm-worker \
   --worker-name aditya-mac \
-  --model large-v3 \
+  --model medium \
   --device cpu \
   --compute-type int8 \
-  --batch-size 16 \
+  --batch-size 4 \
   --once
 ```
 
-The default remains CPU/int8 for macOS safety. Leave off `--once` to drain the
-queue continuously. The worker downloads source audio from R2, uploads the
-transcript artifact back to R2, and asks the Railway API to commit the transcript
-to production DuckDB; no manual transcript deployment is required.
+The default local worker profile is CPU/int8 with `medium` and batch size 4.
+Use `--model small` only for a faster smoke test. Reserve `large-v3` for
+Runpod/CUDA or an intentional overnight local run. Leave off `--once` to drain
+the queue continuously. The worker downloads source audio from R2, uploads the
+transcript artifact back to R2, and asks the Railway API to commit the
+transcript to production DuckDB; no manual transcript deployment is required.
 
 ## 9. Backup and restore check
 

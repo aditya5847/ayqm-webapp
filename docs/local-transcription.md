@@ -25,8 +25,16 @@ AYQM_WORKER_TOKEN=<separate-random-worker-secret>
 ```
 
 5. Keep these secrets outside git:
+   - `AYQM_API_URL`: production API origin, including `https://`.
    - `HF_TOKEN`: Hugging Face read token.
    - `AYQM_WORKER_TOKEN`: same value configured in Railway.
+
+6. Homebrew FFmpeg libraries must be visible to Python's dynamic loader. On this
+   Mac, `torchcodec` imports successfully with:
+
+```sh
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/ffmpeg@7/lib
+```
 
 ## Weekly Episode Workflow
 
@@ -41,40 +49,76 @@ AYQM_WORKER_TOKEN=<separate-random-worker-secret>
    With `AYQM_EXTERNAL_TRANSCRIPTION_WORKER=true`, this creates a queued job in
    production DuckDB. Railway does not run WhisperX itself.
 
-3. From the repo root on the Mac, claim and process one queued job:
+3. From the repo root on the Mac, export the worker environment:
 
 ```sh
-HF_TOKEN='<hugging-face-token>' /Users/adityasrivastava/.local/bin/uv run ayqm-worker \
-  --api-url https://api.example.com \
-  --token '<worker-token>' \
-  --worker-name aditya-mac \
-  --model large-v3 \
-  --device cpu \
-  --compute-type int8 \
-  --batch-size 16 \
-  --once
+export AYQM_API_URL='https://api.example.com'
+export AYQM_WORKER_TOKEN='<worker-token>'
+export HF_TOKEN='<hugging-face-token>'
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/ffmpeg@7/lib
 ```
 
    Replace `https://api.example.com` with the live API origin and
-   `<worker-token>` with Railway's `AYQM_WORKER_TOKEN`.
+   `<worker-token>` with Railway's `AYQM_WORKER_TOKEN`. The worker also loads
+   these values from the repo-root `.env`, but exporting them makes the active
+   shell unambiguous.
 
-4. Watch the worker logs for the normal sequence:
+4. Verify the local worker process can see credentials and load audio
+   dependencies:
+
+```sh
+/Users/adityasrivastava/.local/bin/uv run python -c "import os, torchcodec; assert os.getenv('AYQM_API_URL'); assert os.getenv('AYQM_WORKER_TOKEN'); assert os.getenv('HF_TOKEN'); print('worker env ok')"
+```
+
+5. Claim and process one queued job with the Mac CPU profile:
+
+```sh
+/Users/adityasrivastava/.local/bin/uv run ayqm-worker \
+  --worker-name aditya-mac \
+  --model medium \
+  --device cpu \
+  --compute-type int8 \
+  --batch-size 4 \
+  --once
+```
+
+   The worker defaults to this `medium`/CPU/int8/batch-4 profile when no model
+   or batch size is supplied. Use it to run the weekly Mac transcript.
+
+6. If you need a faster smoke test, temporarily override the model with
+   `small`:
+
+```sh
+/Users/adityasrivastava/.local/bin/uv run ayqm-worker \
+  --worker-name aditya-mac \
+  --model small \
+  --device cpu \
+  --compute-type int8 \
+  --batch-size 4 \
+  --once
+```
+
+   Do not use `large-v3` as the routine Mac CPU profile. Reserve it for
+   Runpod/CUDA or an intentional overnight local run after `medium` has proven
+   the workflow.
+
+7. Watch the worker logs for the normal sequence:
    - job claimed
    - source audio downloaded from R2
    - transcription started
    - transcript uploaded to R2
    - job completed
 
-5. Back in admin, confirm the episode transcription status is completed.
+8. Back in admin, confirm the episode transcription status is completed.
 
-6. Open **Speaker mapping**, listen to the generated sample clips, and map every
+9. Open **Speaker mapping**, listen to the generated sample clips, and map every
    diarization label to one of the selected episode speakers.
 
-7. Return to Overview and click **Extract trivia**.
+10. Return to Overview and click **Extract trivia**.
 
-8. Review and edit extracted trivia.
+11. Review and edit extracted trivia.
 
-9. Click **Show on website** when the episode is ready for public visitors.
+12. Click **Show on website** when the episode is ready for public visitors.
 
 ## How Deployment Works
 
@@ -106,10 +150,17 @@ Code deployments remain separate from transcription:
 - `--once` is the weekly default because it processes exactly one episode.
 - Remove `--once` only when you intentionally want the Mac to drain all queued
   transcription jobs.
-- CPU/int8 is the safe default for macOS. Keep it as the fallback command.
+- CPU/int8 with `medium` and batch size 4 is the standard Mac profile. Use
+  `small` only for a faster smoke test.
 - Benchmark faster local settings separately after the weekly workflow is
   proven. Runpod used CUDA/NVIDIA; Mac acceleration has different
   WhisperX/Pyannote/Torch compatibility constraints.
+- If the last log line is language detection for the first 30 seconds, the
+  worker is in full-file Whisper transcription. On Mac CPU, `large-v3` may look
+  stuck for hours; retry with `medium` or `small` before investigating deeper.
+- If `torchcodec` or pyannote reports missing `libavutil`, `libavcodec`, or
+  other FFmpeg libraries, export
+  `DYLD_LIBRARY_PATH=/opt/homebrew/opt/ffmpeg@7/lib` before starting the worker.
 - If the worker fails, the job is marked failed in admin. Re-click
   **Transcribe** after fixing the local issue to create a fresh job.
 - Do not commit transcripts, audio files, local databases, `.env`, or generated

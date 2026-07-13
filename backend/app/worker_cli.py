@@ -11,6 +11,8 @@ from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from dotenv import load_dotenv
+
 from .config import get_settings
 from .schemas import TranscriptionRequest
 from .services.transcription import run_transcription
@@ -132,6 +134,7 @@ def process_lease(api_url: str, token: str, lease: dict, args: argparse.Namespac
 
 
 def main() -> None:
+    load_dotenv()
     logging.basicConfig(
         level=os.getenv("AYQM_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -140,10 +143,10 @@ def main() -> None:
     parser.add_argument("--api-url", default=os.getenv("AYQM_API_URL"))
     parser.add_argument("--token", default=os.getenv("AYQM_WORKER_TOKEN"))
     parser.add_argument("--worker-name", default="ayqm-local-worker")
-    parser.add_argument("--model", default="large-v3")
+    parser.add_argument("--model", default=os.getenv("AYQM_WORKER_MODEL", "medium"))
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--compute-type", default="int8")
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=int(os.getenv("AYQM_WORKER_BATCH_SIZE", "4")))
     parser.add_argument("--hf-token", default=os.getenv("HF_TOKEN"))
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--max-jobs", type=int)

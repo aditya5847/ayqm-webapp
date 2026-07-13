@@ -27,8 +27,8 @@ class FakeApiResponse:
     def __exit__(self, *args):
         return None
 
-    def read(self):
-        return self.payload.read()
+    def read(self, size=-1):
+        return self.payload.read(size)
 
 
 def test_worker_api_request_identifies_client(monkeypatch):
@@ -154,3 +154,59 @@ def test_worker_exits_after_idle_timeout(monkeypatch):
 
     assert clock[0] == 6
     assert len(claims) == 4
+
+
+def test_worker_uses_env_and_cpu_safe_transcription_defaults(monkeypatch, tmp_path):
+    import sys
+
+    from backend.app import worker_cli
+
+    calls = []
+    captured = {}
+    job_id = "job-1"
+    episode_id = "episode-1"
+
+    def fake_request(api_url, token, path, payload=None, method="POST"):
+        calls.append((api_url, token, path, payload, method))
+        if path == "/worker/jobs/claim":
+            return {
+                "job": {"id": job_id, "episode_id": episode_id},
+                "lease_token": "lease-1",
+                "audio_url": "https://objects.example/audio.mp3",
+                "transcription": {"diarize": True},
+            }
+        if path == f"/worker/jobs/{job_id}/transcript-upload":
+            return {
+                "transcript_object_key": f"artifacts/{episode_id}/transcript.json",
+                "transcript_upload_url": "https://objects.example/transcript.json",
+                "transcript_upload_headers": {"Content-Type": "application/json"},
+            }
+        return None
+
+    def fake_urlopen(request, timeout=60):
+        return FakeApiResponse(b"audio")
+
+    def fake_run_transcription(audio_path, episode_dir, request, settings):
+        captured["request"] = request
+        transcript_path = tmp_path / "transcript.json"
+        transcript_path.write_text('{"segments": []}', encoding="utf-8")
+        return {"segments": []}, transcript_path
+
+    monkeypatch.setenv("AYQM_API_URL", "https://api.example.com")
+    monkeypatch.setenv("AYQM_WORKER_TOKEN", "secret")
+    monkeypatch.setenv("HF_TOKEN", "hf-secret")
+    monkeypatch.delenv("AYQM_WORKER_MODEL", raising=False)
+    monkeypatch.delenv("AYQM_WORKER_BATCH_SIZE", raising=False)
+    monkeypatch.setattr(worker_cli, "api_request", fake_request)
+    monkeypatch.setattr(worker_cli, "urlopen", fake_urlopen)
+    monkeypatch.setattr(worker_cli, "run_transcription", fake_run_transcription)
+    monkeypatch.setattr(sys, "argv", ["ayqm-worker", "--once"])
+
+    worker_cli.main()
+
+    assert calls[0][:3] == ("https://api.example.com", "secret", "/worker/jobs/claim")
+    assert captured["request"].model_name == "medium"
+    assert captured["request"].device == "cpu"
+    assert captured["request"].compute_type == "int8"
+    assert captured["request"].batch_size == 4
+    assert captured["request"].hf_token == "hf-secret"
