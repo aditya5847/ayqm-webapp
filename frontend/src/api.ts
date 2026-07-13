@@ -1,5 +1,6 @@
 import type {
   AdminSession,
+  AdminTriviaSearchPage,
   DirectUploadTicket,
   AdminEpisodePage,
   Episode,
@@ -112,6 +113,12 @@ export async function listPublicTrivia(limit = 24, offset = 0): Promise<TriviaIt
 
 export async function listRandomPublicTrivia(limit = 4, excludeIds: string[] = []): Promise<TriviaItem[]> {
   const params = new URLSearchParams({ limit: String(limit) });
+  excludeIds.forEach(id => params.append("exclude_id", id));
+  return request<TriviaItem[]>(`/public/trivia/random?${params}`);
+}
+
+export async function searchRandomPublicTrivia(query: string, limit = 4, excludeIds: string[] = []): Promise<TriviaItem[]> {
+  const params = new URLSearchParams({ limit: String(limit), q: query });
   excludeIds.forEach(id => params.append("exclude_id", id));
   return request<TriviaItem[]>(`/public/trivia/random?${params}`);
 }
@@ -229,6 +236,11 @@ export async function getTranscript(episodeId: string): Promise<TranscriptRespon
 
 export async function getTrivia(episodeId: string): Promise<TriviaItem[]> {
   return request<TriviaItem[]>(`/episodes/${episodeId}/trivia`);
+}
+
+export async function searchAdminTrivia(query: string, page = 1, pageSize = 30): Promise<AdminTriviaSearchPage> {
+  const params = new URLSearchParams({ q: query, page: String(page), page_size: String(pageSize) });
+  return request<AdminTriviaSearchPage>(`/trivia/search?${params}`);
 }
 
 export async function updateTriviaItem(triviaId: string, input: TriviaUpdateInput): Promise<TriviaItem> {

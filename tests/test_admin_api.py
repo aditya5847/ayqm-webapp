@@ -91,6 +91,25 @@ def _seed_labeled_trivia(episode_id, speaker_id):
     return f"{episode_id}-trivia-0001"
 
 
+def _seed_custom_trivia(episode_id, items):
+    trivia = [
+        SimpleNamespace(
+            model_dump=lambda item=item, index=index: {
+                "type": "asked_question",
+                "question": item["question"],
+                "answer": item["answer"],
+                "keywords": item.get("keywords", []),
+                "timestamps": {"start": index, "end": index + 1, "display": str(index)},
+                "speaker_diarization": {},
+                "confidence": "high",
+            }
+        )
+        for index, item in enumerate(items, start=1)
+    ]
+    with get_connection() as conn:
+        save_trivia_items(conn, episode_id, trivia)
+
+
 def test_admin_login_session_logout_and_route_protection(unauth_client):
     assert unauth_client.get("/speakers").status_code == 401
     assert unauth_client.get("/episodes/missing/speaker-labels/SPEAKER_00/sample").status_code == 401
@@ -324,6 +343,80 @@ def test_random_public_trivia_prefers_new_items_and_fills_small_pools(client):
     assert len(refreshed) == 4
     assert len({item["id"] for item in refreshed}) == 4
     assert len({item["id"] for item in refreshed} - {item["id"] for item in first_items}) == 2
+
+
+def test_public_random_trivia_searches_published_items_with_all_terms(client):
+    speaker = _speaker(client)
+    published = _episode(client, [speaker["id"]])
+    unpublished = _episode(client, [speaker["id"]])
+    _seed_custom_trivia(
+        published["id"],
+        [
+            {"question": "Which mission visited the Moon?", "answer": "Apollo 11.", "keywords": ["space"]},
+            {"question": "Which mission visited the Moon?", "answer": "Artemis.", "keywords": ["future"]},
+            {"question": "Which dish uses lentils?", "answer": "Dal.", "keywords": ["food"]},
+        ],
+    )
+    _seed_custom_trivia(
+        unpublished["id"],
+        [{"question": "Which mission visited the Moon?", "answer": "A draft answer.", "keywords": ["space"]}],
+    )
+    assert client.patch(f"/episodes/{published['id']}/publication", json={"is_published": True}).status_code == 200
+
+    response = client.get("/public/trivia/random", params={"limit": 4, "q": "moon space"})
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    assert items[0]["episode_id"] == published["id"]
+    assert items[0]["answer"] == "Apollo 11."
+    assert all("speaker_diarization" not in item for item in items)
+
+
+def test_public_random_trivia_search_refresh_excludes_current_items(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    _seed_custom_trivia(
+        episode["id"],
+        [
+            {"question": f"Searchable planet question {index}?", "answer": f"Answer {index}.", "keywords": ["planet"]}
+            for index in range(6)
+        ],
+    )
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True}).status_code == 200
+
+    first = client.get("/public/trivia/random", params={"limit": 4, "q": "planet"}).json()
+    params = [("limit", "4"), ("q", "planet"), *(("exclude_id", item["id"]) for item in first)]
+    refreshed = client.get("/public/trivia/random", params=params).json()
+
+    assert len(refreshed) == 4
+    assert len({item["id"] for item in refreshed}) == 4
+    assert len({item["id"] for item in refreshed} - {item["id"] for item in first}) == 2
+
+
+def test_admin_trivia_search_includes_unpublished_items_and_paginates(client):
+    speaker = _speaker(client)
+    published = _episode(client, [speaker["id"]])
+    unpublished = _episode(client, [speaker["id"]])
+    _seed_custom_trivia(
+        published["id"],
+        [{"question": "A hidden comet clue?", "answer": "Published answer.", "keywords": ["orbit"]}],
+    )
+    _seed_custom_trivia(
+        unpublished["id"],
+        [{"question": "A hidden comet clue?", "answer": "Draft answer.", "keywords": ["orbit"]}],
+    )
+    assert client.patch(f"/episodes/{published['id']}/publication", json={"is_published": True}).status_code == 200
+
+    first = client.get("/trivia/search", params={"q": "hidden orbit", "page": 1, "page_size": 1})
+    assert first.status_code == 200
+    assert first.json()["total_items"] == 2
+    assert first.json()["total_pages"] == 2
+
+    second = client.get("/trivia/search", params={"q": "hidden orbit", "page": 2, "page_size": 1}).json()
+    assert second["page"] == 2
+    returned = [*first.json()["items"], *second["items"]]
+    assert {item["episode"]["is_published"] for item in returned} == {True, False}
+    assert {item["answer"] for item in returned} == {"Published answer.", "Draft answer."}
 
 
 def test_manual_asker_survives_remap_and_clears_when_speaker_is_deselected(client):

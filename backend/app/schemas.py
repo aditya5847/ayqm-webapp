@@ -175,6 +175,27 @@ class TriviaItemOut(BaseModel):
     created_at: datetime
 
 
+class TriviaSearchEpisodeOut(BaseModel):
+    id: str
+    episode_title: str
+    episode_number: int | None
+    episode_kind: EpisodeKind = "main"
+    published_at: datetime | None = None
+    is_published: bool
+
+
+class TriviaSearchResultOut(TriviaItemOut):
+    episode: TriviaSearchEpisodeOut
+
+
+class TriviaSearchPageOut(BaseModel):
+    items: list[TriviaSearchResultOut]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
 class EpisodeUpdate(BaseModel):
     episode_title: str = Field(min_length=1)
     episode_number: int | None = Field(default=None, ge=1)

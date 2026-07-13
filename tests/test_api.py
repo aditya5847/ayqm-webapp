@@ -60,7 +60,13 @@ def test_upload_episode_persists_metadata_and_speakers(client):
 
     list_response = client.get("/episodes")
     assert list_response.status_code == 200
-    assert len(list_response.json()) == 1
+    payload = list_response.json()
+    assert payload["page"] == 1
+    assert payload["page_size"] == 30
+    assert payload["total_items"] == 1
+    assert payload["total_pages"] == 1
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["id"] == episode["id"]
 
 
 def test_upload_requires_non_empty_existing_speaker_ids(client):

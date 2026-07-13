@@ -151,6 +151,27 @@ export interface TriviaItem {
   created_at: string;
 }
 
+export interface TriviaSearchEpisode {
+  id: string;
+  episode_title: string;
+  episode_number: number | null;
+  episode_kind?: EpisodeKind;
+  published_at: string | null;
+  is_published: boolean;
+}
+
+export interface AdminTriviaSearchResult extends TriviaItem {
+  episode: TriviaSearchEpisode;
+}
+
+export interface AdminTriviaSearchPage {
+  items: AdminTriviaSearchResult[];
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+}
+
 export interface TriviaUpdateInput {
   type: string;
   question: string | null;

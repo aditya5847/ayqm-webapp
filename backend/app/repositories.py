@@ -956,6 +956,31 @@ def delete_trivia_item(conn: DuckDBPyConnection, trivia_id: str) -> str | None:
     return item["episode_id"]
 
 
+def _trivia_search_terms(query: str | None) -> list[str]:
+    if query is None:
+        return []
+    return [term for term in query.strip().lower().split() if term]
+
+
+def _escape_like_term(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _append_trivia_search_filters(filters: list[str], params: list[Any], query: str | None) -> None:
+    for term in _trivia_search_terms(query):
+        filters.append(
+            """
+            (
+                lower(COALESCE(ti.question, '')) LIKE ? ESCAPE '\\'
+                OR lower(COALESCE(ti.answer, '')) LIKE ? ESCAPE '\\'
+                OR lower(CAST(ti.keywords AS VARCHAR)) LIKE ? ESCAPE '\\'
+            )
+            """
+        )
+        pattern = f"%{_escape_like_term(term)}%"
+        params.extend([pattern, pattern, pattern])
+
+
 def list_public_trivia(
     conn: DuckDBPyConnection,
     *,
@@ -992,10 +1017,12 @@ def list_random_public_trivia(
     *,
     limit: int,
     exclude_ids: list[str],
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
     def random_rows(excluded: list[str], row_limit: int) -> list[tuple[Any, ...]]:
         filters = ["e.is_published = TRUE"]
         params: list[Any] = []
+        _append_trivia_search_filters(filters, params, query)
         if excluded:
             placeholders = ", ".join("?" for _ in excluded)
             filters.append(f"ti.id NOT IN ({placeholders})")
@@ -1023,6 +1050,59 @@ def list_random_public_trivia(
     return [_public_trivia(_trivia_from_row(row)) for row in rows]
 
 
+def search_trivia_items(
+    conn: DuckDBPyConnection,
+    *,
+    query: str,
+    page: int,
+    page_size: int,
+) -> dict[str, Any]:
+    filters: list[str] = []
+    params: list[Any] = []
+    _append_trivia_search_filters(filters, params, query)
+    if not filters:
+        return {"items": [], "page": 1, "page_size": page_size, "total_items": 0, "total_pages": 0}
+
+    where = " AND ".join(filters)
+    total_items = int(
+        conn.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM trivia_items ti
+            JOIN episodes e ON e.id = ti.episode_id
+            WHERE {where}
+            """,
+            params,
+        ).fetchone()[0]
+    )
+    total_pages = (total_items + page_size - 1) // page_size
+    effective_page = min(page, max(total_pages, 1))
+    rows = conn.execute(
+        f"""
+        SELECT
+            ti.id, ti.episode_id, ti.type, ti.question, ti.answer, ti.keywords,
+            ti.timestamp_start, ti.timestamp_end, ti.timestamp_display,
+            ti.speaker_diarization, ti.asker_speaker_id, s.name, ti.confidence, ti.created_at,
+            e.episode_title, e.episode_number, e.episode_kind, e.published_at, e.is_published
+        FROM trivia_items ti
+        JOIN episodes e ON e.id = ti.episode_id
+        LEFT JOIN speakers s ON s.id = ti.asker_speaker_id
+        WHERE {where}
+        ORDER BY COALESCE(e.published_at, e.created_at) DESC,
+                 ti.timestamp_start, ti.id
+        LIMIT ? OFFSET ?
+        """,
+        [*params, page_size, (effective_page - 1) * page_size],
+    ).fetchall()
+    return {
+        "items": [_trivia_search_result_from_row(row) for row in rows],
+        "page": effective_page,
+        "page_size": page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+    }
+
+
 def _trivia_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
     return {
         "id": row[0],
@@ -1041,6 +1121,19 @@ def _trivia_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
 
 def _public_trivia(item: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in item.items() if key != "speaker_diarization"}
+
+
+def _trivia_search_result_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    item = _trivia_from_row(row[:14])
+    item["episode"] = {
+        "id": row[1],
+        "episode_title": row[14],
+        "episode_number": row[15],
+        "episode_kind": row[16],
+        "published_at": row[17],
+        "is_published": row[18],
+    }
+    return item
 
 
 def touch_episode(conn: DuckDBPyConnection, episode_id: str) -> None:

@@ -7,6 +7,8 @@ delivery.
 The production deployment uses Cloudflare Pages and R2, a single-replica
 Railway API with DuckDB on a persistent volume, and authenticated external
 transcription workers. Follow the complete [production runbook](docs/deployment.md).
+For Episode 144 and newer weekly episodes, use the
+[local transcription runbook](docs/local-transcription.md).
 
 ## Setup
 
