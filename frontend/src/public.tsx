@@ -1,12 +1,16 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import { ArrowLeft, ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Search, Youtube, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Search, Trophy, X, XCircle, Youtube } from "lucide-react";
 import { Link, NavLink, Outlet, useParams, useSearchParams } from "react-router-dom";
-import type { PublicEpisode, PublicSpeaker, TriviaItem } from "./types";
-import { apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicSpeakers, listRandomPublicTrivia, searchRandomPublicTrivia } from "./api";
-import { formatDate, triviaAskerName } from "./workflow";
-import { Notice, QueryState } from "./ui";
+import type { PublicEpisode, PublicSpeaker, PublicSundayQuizQuestion, PublicSundayQuizSummary, TriviaItem } from "./types";
+import {
+  apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, getPublicSundayQuiz, listPublicEpisodePage,
+  listPublicEpisodes, listPublicSpeakers, listPublicSundayQuizzes, listRandomPublicTrivia, searchRandomPublicTrivia,
+  submitSundayQuizAttempt
+} from "./api";
+import { formatDate, formatDateOnly, triviaAskerName } from "./workflow";
+import { ErrorMessage, Notice, QueryState } from "./ui";
 import logoUrl from "../references/Logo.png";
 import thumbnailUrl from "../references/Podcast Thumbnail.jpg";
 
@@ -25,6 +29,7 @@ export function PublicLayout() {
           <NavLink to="/" end>Home</NavLink>
           <NavLink to="/episodes">Episodes</NavLink>
           <NavLink to="/trivia">Trivia</NavLink>
+          <NavLink to="/sunday-quiz">Sunday Quiz</NavLink>
           <NavLink to="/about">About us</NavLink>
         </nav>
       </header>
@@ -161,6 +166,92 @@ export function PublicTriviaPage() {
       <QueryState query={trivia} feature="The public trivia collection" empty={query ? `No trivia matched "${query}".` : "No trivia is available yet."}>{(items) => <><TriviaGrid key={`${query}-${round}`} items={items} /><div className="trivia-refresh"><button className="button light" type="button" onClick={refresh} disabled={trivia.isFetching}><RefreshCw className={trivia.isFetching ? "spin" : undefined} size={17} />{refreshLabel}</button></div></>}</QueryState>
     </PublicPageHeader>
   );
+}
+
+export function PublicSundayQuizArchivePage() {
+  const quizzes = useQuery({ queryKey: ["public", "sunday-quizzes"], queryFn: listPublicSundayQuizzes });
+  return <PublicPageHeader eyebrow="Weekly challenge" title="The Sunday Quiz" intro="One theme, ten questions, four options each. Play the latest set or browse the archive.">
+    <QueryState query={quizzes} feature="The Sunday Quiz archive" empty="No Sunday Quizzes are published yet.">
+      {items => <div className="sunday-quiz-archive">{items.map(item => <SundayQuizArchiveTile key={item.id} item={item} />)}</div>}
+    </QueryState>
+  </PublicPageHeader>;
+}
+
+function SundayQuizArchiveTile({ item }: { item: PublicSundayQuizSummary }) {
+  const cover = apiAssetUrl(item.cover_image_url);
+  return <article className="sunday-quiz-tile">
+    {cover ? <img src={cover} alt="" /> : <div className="sunday-quiz-placeholder"><Trophy /></div>}
+    <div>
+      <p className="eyebrow">{formatDateOnly(item.quiz_date)} · {item.question_count} questions</p>
+      <h2><Link to={`/sunday-quiz/${item.id}`}>{item.theme}</Link></h2>
+      <Link className="button primary" to={`/sunday-quiz/${item.id}`}>Play quiz <ArrowRight size={17} /></Link>
+    </div>
+  </article>;
+}
+
+export function PublicSundayQuizPlayPage() {
+  const { quizId = "" } = useParams();
+  const quiz = useQuery({ queryKey: ["public", "sunday-quiz", quizId], queryFn: () => getPublicSundayQuiz(quizId), enabled: Boolean(quizId) });
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const attempt = useMutation({ mutationFn: () => submitSundayQuizAttempt(quizId, answers) });
+  const allAnswered = quiz.data ? quiz.data.questions.every(question => answers[question.id] !== undefined) : false;
+  useEffect(() => {
+    setAnswers({});
+  }, [quizId]);
+
+  return <div className="public-content sunday-quiz-play">
+    <QueryState query={quiz} feature="The Sunday Quiz">
+      {item => <>
+        <header className="sunday-quiz-masthead">
+          {apiAssetUrl(item.cover_image_url) ? <img src={apiAssetUrl(item.cover_image_url) ?? ""} alt="" /> : <div className="sunday-quiz-placeholder"><Trophy /></div>}
+          <div><p className="eyebrow">{formatDateOnly(item.quiz_date)} · {item.question_count} questions</p><h1>{item.theme}</h1>{attempt.data ? <p className="sunday-score">You scored {attempt.data.score}/{attempt.data.total}</p> : null}</div>
+        </header>
+        <form className="sunday-question-stack" onSubmit={event => { event.preventDefault(); attempt.mutate(); }}>
+          {item.questions.map(question => <PublicSundayQuizQuestionCard key={question.id} question={question} selected={answers[question.id]} disabled={Boolean(attempt.data)} onSelect={value => setAnswers(current => ({ ...current, [question.id]: value }))} review={attempt.data?.review.find(result => result.question_id === question.id)} />)}
+          {!attempt.data && <div className="sunday-submit-row"><button className="button primary" type="submit" disabled={!allAnswered || attempt.isPending}><Trophy size={17} />Submit answers</button></div>}
+          <ErrorMessage error={attempt.error} />
+        </form>
+      </>}
+    </QueryState>
+  </div>;
+}
+
+function PublicSundayQuizQuestionCard({
+  question,
+  selected,
+  disabled,
+  onSelect,
+  review
+}: {
+  question: PublicSundayQuizQuestion;
+  selected: number | undefined;
+  disabled: boolean;
+  onSelect: (value: number) => void;
+  review?: { selected_option: number | null; correct_option: number; correct: boolean; explanation: string | null; answer_image_url: string | null };
+}) {
+  return <article className={`sunday-question-card${review ? (review.correct ? " correct" : " incorrect") : ""}`}>
+    <div className="sunday-question-number">{String(question.position).padStart(2, "0")}</div>
+    <div className="sunday-question-body">
+      {apiAssetUrl(question.question_image_url) && <img className="sunday-question-image" src={apiAssetUrl(question.question_image_url) ?? ""} alt="" />}
+      <h2>{question.question}</h2>
+      <div className="sunday-answer-options">
+        {question.options.map((option, index) => {
+          const isCorrect = review?.correct_option === index;
+          const isSelectedWrong = review && review.selected_option === index && !isCorrect;
+          return <label key={index} className={isCorrect ? "is-correct" : isSelectedWrong ? "is-wrong" : selected === index ? "is-selected" : undefined}>
+          <input type="radio" name={question.id} value={index} checked={selected === index} disabled={disabled} onChange={() => onSelect(index)} />
+          <span>{String.fromCharCode(65 + index)}</span>
+          <strong>{option}</strong>
+        </label>;
+        })}
+      </div>
+      {review && <div className="sunday-review">
+        <p>{review.correct ? <CheckCircle2 size={18} /> : <XCircle size={18} />}{review.correct ? "Correct" : `Correct answer: ${String.fromCharCode(65 + review.correct_option)}`}</p>
+        {review.explanation && <p>{review.explanation}</p>}
+        {apiAssetUrl(review.answer_image_url) && <img src={apiAssetUrl(review.answer_image_url) ?? ""} alt="" />}
+      </div>}
+    </div>
+  </article>;
 }
 
 const hostNames = new Set([

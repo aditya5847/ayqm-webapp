@@ -1,10 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { AdminEpisodesPage, AdminGate, AdminLoginPage, AdminTriviaSearchPage, RssImportPage, SpeakersPage, UploadPage } from "./admin";
+import { AdminEpisodesPage, AdminGate, AdminLoginPage, AdminTriviaSearchPage, RssImportPage, SpeakersPage, SundayQuizAdminPage, UploadPage } from "./admin";
 import {
   EpisodeDetailsTab, EpisodeOverviewTab, EpisodeSpeakerMappingTab,
   EpisodeTranscriptTab, EpisodeTriviaTab, EpisodeWorkspaceLayout
 } from "./episode-admin";
-import { AboutPage, HomePage, PublicEpisodePage, PublicEpisodesPage, PublicLayout, PublicTriviaPage } from "./public";
+import { AboutPage, HomePage, PublicEpisodePage, PublicEpisodesPage, PublicLayout, PublicSundayQuizArchivePage, PublicSundayQuizPlayPage, PublicTriviaPage } from "./public";
 
 function App() {
   return (
@@ -14,6 +14,8 @@ function App() {
         <Route path="episodes" element={<PublicEpisodesPage />} />
         <Route path="episodes/:episodeId" element={<PublicEpisodePage />} />
         <Route path="trivia" element={<PublicTriviaPage />} />
+        <Route path="sunday-quiz" element={<PublicSundayQuizArchivePage />} />
+        <Route path="sunday-quiz/:quizId" element={<PublicSundayQuizPlayPage />} />
         <Route path="about" element={<AboutPage />} />
       </Route>
       <Route path="admin/login" element={<AdminLoginPage />} />
@@ -21,6 +23,7 @@ function App() {
         <Route index element={<Navigate to="episodes" replace />} />
         <Route path="episodes" element={<AdminEpisodesPage />} />
         <Route path="trivia" element={<AdminTriviaSearchPage />} />
+        <Route path="sunday-quizzes" element={<SundayQuizAdminPage />} />
         <Route path="episodes/new" element={<UploadPage />} />
         <Route path="imports" element={<RssImportPage />} />
         <Route path="episodes/:episodeId" element={<EpisodeWorkspaceLayout />}>

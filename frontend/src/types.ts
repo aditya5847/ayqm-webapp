@@ -219,3 +219,74 @@ export interface FeedImport {
   started_at: string | null;
   finished_at: string | null;
 }
+
+export interface SundayQuizQuestion {
+  id: string;
+  position: number;
+  question: string | null;
+  options: string[];
+  correct_option: number | null;
+  explanation: string | null;
+  question_image_url: string | null;
+  answer_image_url: string | null;
+}
+
+export interface SundayQuiz {
+  id: string;
+  quiz_date: string;
+  theme: string;
+  status: "draft" | "published" | string;
+  cover_image_url: string | null;
+  question_count: number;
+  questions: SundayQuizQuestion[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SundayQuizCreateInput {
+  quiz_date: string;
+  theme: string;
+}
+
+export interface SundayQuizQuestionInput {
+  question: string | null;
+  options: string[];
+  correct_option: number | null;
+  explanation: string | null;
+}
+
+export interface PublicSundayQuizSummary {
+  id: string;
+  quiz_date: string;
+  theme: string;
+  question_count: number;
+  cover_image_url: string | null;
+}
+
+export interface PublicSundayQuizQuestion {
+  id: string;
+  position: number;
+  question: string;
+  options: string[];
+  question_image_url: string | null;
+}
+
+export interface PublicSundayQuizDetail extends PublicSundayQuizSummary {
+  questions: PublicSundayQuizQuestion[];
+}
+
+export interface SundayQuizAnswerReview {
+  question_id: string;
+  position: number;
+  selected_option: number | null;
+  correct_option: number;
+  correct: boolean;
+  explanation: string | null;
+  answer_image_url: string | null;
+}
+
+export interface SundayQuizAttemptResult {
+  score: number;
+  total: number;
+  review: SundayQuizAnswerReview[];
+}

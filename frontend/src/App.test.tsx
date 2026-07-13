@@ -189,6 +189,37 @@ describe("public experience", () => {
     expect(refreshUrl).toContain("exclude_id=match-1");
     expect(refreshUrl).toContain("exclude_id=match-4");
   });
+
+  it("plays a Sunday Quiz and reveals the answer review only after submit", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/public/sunday-quizzes/quiz-1/attempts") && init?.method === "POST") {
+        return jsonResponse({
+          score: 1,
+          total: 2,
+          review: [
+            { question_id: "sq-1", position: 1, selected_option: 1, correct_option: 1, correct: true, explanation: "It was published first.", answer_image_url: null },
+            { question_id: "sq-2", position: 2, selected_option: 0, correct_option: 2, correct: false, explanation: "The third option was correct.", answer_image_url: null }
+          ]
+        });
+      }
+      if (url.endsWith("/public/sunday-quizzes/quiz-1")) return jsonResponse(sundayQuiz());
+      return jsonResponse({ detail: "Not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/sunday-quiz/quiz-1");
+
+    expect(await screen.findByRole("heading", { name: "Space" })).toBeInTheDocument();
+    expect(screen.queryByText("It was published first.")).not.toBeInTheDocument();
+    const radios = screen.getAllByRole("radio");
+    fireEvent.click(radios[1]);
+    fireEvent.click(radios[4]);
+    fireEvent.click(screen.getByRole("button", { name: /Submit answers/ }));
+
+    expect(await screen.findByText("You scored 1/2")).toBeInTheDocument();
+    expect(screen.getByText("It was published first.")).toBeInTheDocument();
+    expect(screen.getByText("Correct answer: C")).toBeInTheDocument();
+  });
 });
 
 describe("admin experience", () => {
@@ -276,6 +307,20 @@ function publicEpisode(id: string, title: string, episodeNumber = 1, speakers: s
     id, episode_title: title, episode_number: episodeNumber, episode_kind: "main",
     episode_description: "Description", published_at: "2026-01-01T00:00:00Z",
     source_url: null, artwork_url: artworkUrl, speakers: speakers.map(name => ({ id: name.toLowerCase().replace(/\s+/g, "-"), name })), trivia_count: 0
+  };
+}
+
+function sundayQuiz() {
+  return {
+    id: "quiz-1",
+    quiz_date: "2026-01-04",
+    theme: "Space",
+    question_count: 2,
+    cover_image_url: null,
+    questions: [
+      { id: "sq-1", position: 1, question: "Closest planet to the sun?", options: ["Mars", "Mercury", "Jupiter", "Saturn"], question_image_url: null },
+      { id: "sq-2", position: 2, question: "Second test question?", options: ["Venus", "Earth", "Neptune", "Uranus"], question_image_url: null }
+    ]
   };
 }
 
