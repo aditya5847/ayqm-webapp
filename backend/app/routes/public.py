@@ -80,6 +80,8 @@ def public_trivia(
 def random_public_trivia(
     limit: int = Query(default=4, ge=1, le=24),
     exclude_id: list[str] = Query(default=[]),
+    q: str | None = Query(default=None, min_length=1),
 ) -> list[dict]:
+    query = q.strip() if q and q.strip() else None
     with get_connection() as conn:
-        return list_random_public_trivia(conn, limit=limit, exclude_ids=exclude_id)
+        return list_random_public_trivia(conn, limit=limit, exclude_ids=exclude_id, query=query)

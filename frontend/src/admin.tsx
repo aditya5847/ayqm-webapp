@@ -1,13 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Trash2, Upload, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, ExternalLink, LayoutDashboard, Loader2, LogOut, Pencil, Plus, Rss, Save, Search, Trash2, Upload, Users } from "lucide-react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   createSpeaker, deleteSpeaker, getAdminSession, getRssImport, isUnsupportedFeature,
-  listEpisodes, listSpeakers, loginAdmin, logoutAdmin, startRssImport, updateSpeaker, uploadEpisode
+  listEpisodes, listSpeakers, loginAdmin, logoutAdmin, searchAdminTrivia, startRssImport, updateSpeaker, uploadEpisode
 } from "./api";
-import type { Episode, FeedImport, Speaker } from "./types";
-import { formatDate } from "./workflow";
+import type { AdminTriviaSearchResult, Episode, FeedImport, Speaker } from "./types";
+import { formatDate, triviaAskerName } from "./workflow";
 import { ComingSoon, ErrorMessage, Loading, Notice, QueryState, RequiredLabel, StatusPill } from "./ui";
 import logoUrl from "../references/Logo.png";
 
@@ -41,7 +41,7 @@ function AdminLayout() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const logout = useMutation({ mutationFn: logoutAdmin, onSuccess: () => { client.clear(); navigate("/admin/login"); } });
-  return <div className="admin-shell"><aside className="admin-sidebar"><Link className="admin-brand" to="/"><img src={logoUrl} alt="Are You Quizzing Me?" /></Link><p className="workspace-label">Admin workspace</p><nav className="admin-nav" aria-label="Admin navigation"><NavLink to="/admin/episodes"><LayoutDashboard size={18} />Episodes</NavLink><NavLink to="/admin/episodes/new"><Upload size={18} />Upload</NavLink><NavLink to="/admin/imports"><Rss size={18} />RSS import</NavLink><NavLink to="/admin/speakers"><Users size={18} />Speakers</NavLink></nav><div className="admin-sidebar-bottom"><Link to="/">View public site <ExternalLink size={15} /></Link><button type="button" onClick={() => logout.mutate()}><LogOut size={16} />Sign out</button></div></aside><main className="admin-main"><Outlet /></main></div>;
+  return <div className="admin-shell"><aside className="admin-sidebar"><Link className="admin-brand" to="/"><img src={logoUrl} alt="Are You Quizzing Me?" /></Link><p className="workspace-label">Admin workspace</p><nav className="admin-nav" aria-label="Admin navigation"><NavLink to="/admin/episodes"><LayoutDashboard size={18} />Episodes</NavLink><NavLink to="/admin/trivia"><Search size={18} />Trivia</NavLink><NavLink to="/admin/episodes/new"><Upload size={18} />Upload</NavLink><NavLink to="/admin/imports"><Rss size={18} />RSS import</NavLink><NavLink to="/admin/speakers"><Users size={18} />Speakers</NavLink></nav><div className="admin-sidebar-bottom"><Link to="/">View public site <ExternalLink size={15} /></Link><button type="button" onClick={() => logout.mutate()}><LogOut size={16} />Sign out</button></div></aside><main className="admin-main"><Outlet /></main></div>;
 }
 
 export function RssImportPage() {
@@ -73,6 +73,32 @@ export function AdminEpisodesPage() {
     }
   }, [episodes.data, episodes.isPlaceholderData, pageParam, requestedPage, setSearchParams]);
   return <AdminPage title="Episodes" actions={<Link className="button primary" to="/admin/episodes/new"><Upload size={16} />Upload episode</Link>}><QueryState query={episodes} feature="The episode list">{items => items.items.length ? <><EpisodePagination page={items.page} totalPages={items.total_pages} setSearchParams={setSearchParams} /><div className="table-wrap"><table><thead><tr><th>Episode</th><th>Website visibility</th><th>Transcript</th><th>Trivia</th><th>Updated</th></tr></thead><tbody>{items.items.map(episode => <tr key={episode.id}><td><Link className="row-title" to={`/admin/episodes/${episode.id}`}>{episodeLabel(episode)} {episode.episode_title}</Link><div className="muted clamp">{episode.episode_description}</div></td><td><StatusPill value={episode.is_published ? "visible" : "hidden"} /></td><td><StatusPill value={episode.transcript_status} /></td><td><StatusPill value={episode.trivia_status} />{episode.trivia_count > 0 && <span className="count">{episode.trivia_count}</span>}</td><td>{formatDate(episode.updated_at)}</td></tr>)}</tbody></table></div><EpisodePagination page={items.page} totalPages={items.total_pages} setSearchParams={setSearchParams} /></> : <Notice>No episodes uploaded yet.</Notice>}</QueryState></AdminPage>;
+}
+
+export function AdminTriviaSearchPage() {
+  const pageSize = 30;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = (searchParams.get("q") ?? "").trim();
+  const requestedPage = positivePage(searchParams.get("page"));
+  const [draft, setDraft] = useState(query);
+  const results = useQuery({
+    queryKey: ["admin", "trivia-search", query, requestedPage],
+    queryFn: () => searchAdminTrivia(query, requestedPage, pageSize),
+    enabled: query.length > 0,
+    placeholderData: keepPreviousData
+  });
+  useEffect(() => setDraft(query), [query]);
+  useEffect(() => {
+    if (!results.isPlaceholderData && results.data && results.data.page !== requestedPage) {
+      setSearchParams({ q: query, page: String(results.data.page) }, { replace: true });
+    }
+  }, [query, requestedPage, results.data, results.isPlaceholderData, setSearchParams]);
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const next = draft.trim();
+    setSearchParams(next ? { q: next } : {});
+  }
+  return <AdminPage title="Trivia search"><form className="inline-form search-form" onSubmit={submit}><input aria-label="Search trivia" placeholder="Search questions, answers, or keywords" value={draft} onChange={event => setDraft(event.target.value)} /><button className="button primary" type="submit" disabled={!draft.trim()}><Search size={16} />Search</button></form>{!query ? <Notice>Search across all trivia, including unpublished episodes.</Notice> : <QueryState query={results} feature="Trivia search">{page => page.items.length ? <><TriviaSearchPagination page={page.page} totalPages={page.total_pages} query={query} setSearchParams={setSearchParams} /><div className="admin-trivia-results">{page.items.map(item => <AdminTriviaSearchResultCard key={item.id} item={item} />)}</div><TriviaSearchPagination page={page.page} totalPages={page.total_pages} query={query} setSearchParams={setSearchParams} /></> : <Notice>No trivia matched "{query}".</Notice>}</QueryState>}</AdminPage>;
 }
 
 export function UploadPage() {
@@ -113,6 +139,27 @@ function AdminPage({ title, actions, children }: { title: string; actions?: Reac
   return <><header className="admin-page-header"><div><p className="eyebrow">Podcast operations</p><h1>{title}</h1></div>{actions}</header>{children}</>;
 }
 
+function AdminTriviaSearchResultCard({ item }: { item: AdminTriviaSearchResult }) {
+  return <article className="admin-trivia-result"><div className="trivia-result-heading"><div><p className="eyebrow">{searchEpisodeLabel(item)} · {formatDate(item.episode.published_at)}</p><h2><Link to={`/admin/episodes/${item.episode.id}/trivia`}>{item.episode.episode_title}</Link></h2></div><StatusPill value={item.episode.is_published ? "visible" : "hidden"} /></div><h3>{item.question || "Untitled trivia item"}</h3><div className="trivia-answer"><span>Answer</span><p>{item.answer || "No answer provided."}</p></div><div className="trivia-meta"><span>{item.confidence} confidence</span><span>{triviaAskerName(item)}</span>{item.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div></article>;
+}
+
+function TriviaSearchPagination({ page, totalPages, query, setSearchParams }: { page: number; totalPages: number; query: string; setSearchParams: ReturnType<typeof useSearchParams>[1] }) {
+  if (totalPages <= 1) return null;
+  const pages = paginationPages(page, totalPages);
+  const goToPage = (nextPage: number) => setSearchParams(nextPage > 1 ? { q: query, page: String(nextPage) } : { q: query });
+  return <nav className="pagination" aria-label="Trivia search pages">
+    {page > 1 && <button type="button" onClick={() => goToPage(page - 1)}><ArrowLeft size={16} />Previous</button>}
+    <div className="pagination-pages">{pages.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} aria-hidden="true">...</span> : <button key={item} type="button" aria-current={item === page ? "page" : undefined} onClick={() => goToPage(item)}>{item}</button>)}</div>
+    {page < totalPages && <button type="button" onClick={() => goToPage(page + 1)}>Next<ArrowRight size={16} /></button>}
+  </nav>;
+}
+
+function searchEpisodeLabel(item: AdminTriviaSearchResult): string {
+  if (item.episode.episode_kind === "announcement") return "Announcement";
+  if (item.episode.episode_kind === "mini") return `Mini #${item.episode.episode_number}`;
+  return `#${item.episode.episode_number}`;
+}
+
 function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
 }
@@ -133,9 +180,9 @@ function EpisodePagination({ page, totalPages, setSearchParams }: { page: number
   const pages = paginationPages(page, totalPages);
   const goToPage = (nextPage: number) => setSearchParams(nextPage > 1 ? { page: String(nextPage) } : {});
   return <nav className="pagination" aria-label="Episode pages">
-    <button type="button" onClick={() => goToPage(page - 1)} disabled={page === 1}><ArrowLeft size={16} />Previous</button>
+    {page > 1 && <button type="button" onClick={() => goToPage(page - 1)}><ArrowLeft size={16} />Previous</button>}
     <div className="pagination-pages">{pages.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} aria-hidden="true">…</span> : <button key={item} type="button" aria-current={item === page ? "page" : undefined} onClick={() => goToPage(item)}>{item}</button>)}</div>
-    <button type="button" onClick={() => goToPage(page + 1)} disabled={page === totalPages}>Next<ArrowRight size={16} /></button>
+    {page < totalPages && <button type="button" onClick={() => goToPage(page + 1)}>Next<ArrowRight size={16} /></button>}
   </nav>;
 }
 

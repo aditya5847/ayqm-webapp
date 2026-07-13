@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..auth import require_admin
 from ..config import get_settings
@@ -7,14 +7,28 @@ from ..repositories import (
     delete_trivia_item,
     get_speaker,
     get_trivia_item,
+    search_trivia_items,
     speaker_ids_for_episode,
     update_trivia_item,
 )
-from ..schemas import TriviaItemOut, TriviaItemUpdate, TriviaRephraseOut
+from ..schemas import TriviaItemOut, TriviaItemUpdate, TriviaRephraseOut, TriviaSearchPageOut
 from ..services.rephrase import RephraseConfigurationError, RephraseProviderError, rephrase_trivia
 
 
 router = APIRouter(prefix="/trivia", tags=["trivia"], dependencies=[Depends(require_admin)])
+
+
+@router.get("/search", response_model=TriviaSearchPageOut)
+def search_trivia(
+    q: str = Query(min_length=1),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=30, ge=1, le=100),
+) -> dict:
+    query = q.strip()
+    if not query:
+        return {"items": [], "page": 1, "page_size": page_size, "total_items": 0, "total_pages": 0}
+    with get_connection() as conn:
+        return search_trivia_items(conn, query=query, page=page, page_size=page_size)
 
 
 @router.patch("/{trivia_id}", response_model=TriviaItemOut)

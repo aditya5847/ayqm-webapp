@@ -158,7 +158,11 @@ Integrity Check does not reject its authenticated API requests with error 1010.
 
 ## 8. Process future episodes from the Mac
 
-Upload through the admin UI, then run one queued job locally:
+Use the detailed [local transcription runbook](local-transcription.md) for
+Episode 144 and newer weekly episodes.
+
+Upload or import the episode through production admin, click **Transcribe**, and
+then run one queued job locally:
 
 ```sh
 HF_TOKEN=<token> /Users/adityasrivastava/.local/bin/uv run ayqm-worker \
@@ -173,7 +177,9 @@ HF_TOKEN=<token> /Users/adityasrivastava/.local/bin/uv run ayqm-worker \
 ```
 
 The default remains CPU/int8 for macOS safety. Leave off `--once` to drain the
-queue continuously.
+queue continuously. The worker downloads source audio from R2, uploads the
+transcript artifact back to R2, and asks the Railway API to commit the transcript
+to production DuckDB; no manual transcript deployment is required.
 
 ## 9. Backup and restore check
 

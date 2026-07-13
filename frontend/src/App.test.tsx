@@ -166,6 +166,29 @@ describe("public experience", () => {
     expect(refreshUrl).toContain("exclude_id=old-1");
     expect(refreshUrl).toContain("exclude_id=old-4");
   });
+
+  it("searches trivia as four refreshable public cards", async () => {
+    const first = [1, 2, 3, 4].map(index => trivia(`match-${index}`, `Planet question ${index}?`));
+    const second = [5, 6, 7, 8].map(index => trivia(`next-${index}`, `Next planet question ${index}?`));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return jsonResponse(url.includes("exclude_id") ? second : first);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/trivia");
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "Search trivia" }), { target: { value: "planet" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findAllByRole("heading", { name: /Planet question/ })).toHaveLength(4);
+    expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("q=planet");
+
+    fireEvent.click(screen.getByRole("button", { name: "Deal four matching cards" }));
+    expect(await screen.findAllByRole("heading", { name: /Next planet question/ })).toHaveLength(4);
+    const refreshUrl = String(fetchMock.mock.calls.at(-1)?.[0]);
+    expect(refreshUrl).toContain("q=planet");
+    expect(refreshUrl).toContain("exclude_id=match-1");
+    expect(refreshUrl).toContain("exclude_id=match-4");
+  });
 });
 
 describe("admin experience", () => {
@@ -183,6 +206,41 @@ describe("admin experience", () => {
     renderApp("/admin/login");
     expect(screen.getByRole("heading", { name: "Admin sign in" })).toBeInTheDocument();
     expect(screen.getByLabelText(/Password/)).toBeRequired();
+  });
+
+  it("renders admin trivia search results with episode context", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/session")) return jsonResponse({ authenticated: true });
+      if (url.includes("/trivia/search")) return jsonResponse({
+        items: [{
+          ...triviaItem,
+          id: "trivia-admin-1",
+          question: "Draft comet question?",
+          answer: "Draft comet answer.",
+          episode: {
+            id: "episode-1",
+            episode_title: "Unpublished comet episode",
+            episode_number: 12,
+            episode_kind: "main",
+            published_at: null,
+            is_published: false
+          }
+        }],
+        page: 1,
+        page_size: 30,
+        total_items: 1,
+        total_pages: 1
+      });
+      return jsonResponse({ detail: "Not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/admin/trivia?q=comet");
+
+    expect(await screen.findByRole("heading", { name: "Unpublished comet episode" })).toBeInTheDocument();
+    expect(screen.getByText("Draft comet question?")).toBeInTheDocument();
+    expect(screen.getByText("hidden")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Unpublished comet episode" })).toHaveAttribute("href", "/admin/episodes/episode-1/trivia");
   });
 });
 

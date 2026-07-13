@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import { ArrowLeft, ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Youtube, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Search, Youtube, X } from "lucide-react";
 import { Link, NavLink, Outlet, useParams, useSearchParams } from "react-router-dom";
 import type { PublicEpisode, PublicSpeaker, TriviaItem } from "./types";
-import { apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicSpeakers, listPublicTrivia, listRandomPublicTrivia } from "./api";
+import { apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, listPublicEpisodePage, listPublicEpisodes, listPublicSpeakers, listRandomPublicTrivia, searchRandomPublicTrivia } from "./api";
 import { formatDate, triviaAskerName } from "./workflow";
 import { Notice, QueryState } from "./ui";
 import logoUrl from "../references/Logo.png";
@@ -126,20 +126,39 @@ export function PublicEpisodePage() {
 }
 
 export function PublicTriviaPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = (searchParams.get("q") ?? "").trim();
+  const [draft, setDraft] = useState(query);
   const [round, setRound] = useState(0);
   const [excludeIds, setExcludeIds] = useState<string[]>([]);
   const trivia = useQuery({
-    queryKey: ["public", "trivia", "random", round],
-    queryFn: () => listRandomPublicTrivia(4, excludeIds),
+    queryKey: ["public", "trivia", "random", query, round],
+    queryFn: () => query ? searchRandomPublicTrivia(query, 4, excludeIds) : listRandomPublicTrivia(4, excludeIds),
     placeholderData: keepPreviousData
   });
+  useEffect(() => {
+    setDraft(query);
+    setExcludeIds([]);
+    setRound(0);
+  }, [query]);
   const refresh = () => {
     setExcludeIds(trivia.data?.map(item => item.id) ?? []);
     setRound(value => value + 1);
   };
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const next = draft.trim();
+    setSearchParams(next ? { q: next } : {});
+  };
+  const clear = () => {
+    setDraft("");
+    setSearchParams({});
+  };
+  const refreshLabel = query ? "Deal four matching cards" : "Deal four new cards";
   return (
     <PublicPageHeader eyebrow="Question bank" title="Trivia" intro="Four questions, pulled at random, from the podcast. Make your guess, then reveal the answer.">
-      <QueryState query={trivia} feature="The public trivia collection" empty="No trivia is available yet.">{(items) => <><TriviaGrid key={round} items={items} /><div className="trivia-refresh"><button className="button light" type="button" onClick={refresh} disabled={trivia.isFetching}><RefreshCw className={trivia.isFetching ? "spin" : undefined} size={17} />Deal four new cards</button></div></>}</QueryState>
+      <form className="public-trivia-search" onSubmit={submit}><input aria-label="Search trivia" placeholder="Search trivia" value={draft} onChange={event => setDraft(event.target.value)} /><button className="button primary" type="submit" disabled={!draft.trim()}><Search size={16} />Search</button>{query && <button className="button light" type="button" onClick={clear}>Clear</button>}</form>
+      <QueryState query={trivia} feature="The public trivia collection" empty={query ? `No trivia matched "${query}".` : "No trivia is available yet."}>{(items) => <><TriviaGrid key={`${query}-${round}`} items={items} /><div className="trivia-refresh"><button className="button light" type="button" onClick={refresh} disabled={trivia.isFetching}><RefreshCw className={trivia.isFetching ? "spin" : undefined} size={17} />{refreshLabel}</button></div></>}</QueryState>
     </PublicPageHeader>
   );
 }
@@ -388,9 +407,9 @@ function EpisodePagination({ page, totalPages, setSearchParams }: { page: number
   const pages = paginationPages(page, totalPages);
   const goToPage = (nextPage: number) => setSearchParams(nextPage > 1 ? { page: String(nextPage) } : {});
   return <nav className="pagination" aria-label="Episode pages">
-    <button type="button" onClick={() => goToPage(page - 1)} disabled={page === 1}><ArrowLeft size={16} />Previous</button>
+    {page > 1 && <button type="button" onClick={() => goToPage(page - 1)}><ArrowLeft size={16} />Previous</button>}
     <div className="pagination-pages">{pages.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} aria-hidden="true">…</span> : <button key={item} type="button" aria-current={item === page ? "page" : undefined} onClick={() => goToPage(item)}>{item}</button>)}</div>
-    <button type="button" onClick={() => goToPage(page + 1)} disabled={page === totalPages}>Next<ArrowRight size={16} /></button>
+    {page < totalPages && <button type="button" onClick={() => goToPage(page + 1)}>Next<ArrowRight size={16} /></button>}
   </nav>;
 }
 
