@@ -45,6 +45,10 @@ known episode speakers.
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` is required in the ayqm-webapp process
   environment for trivia extraction. Put it in the repo-root `.env` for local
   development; do not commit `.env`.
+- Gemini trivia extraction uses the active prompt in code, chunked transcript
+  processing, and prompt version metadata. Keep historical prompt text in
+  `docs/trivia-prompt-history.md`; update that doc whenever the active prompt
+  changes.
 - The local `.env` is loaded by app settings, but `ayqm-transcribe` ultimately
   reads Gemini credentials from `os.environ`, so make sure the server process is
   started with `.env` values loaded.
@@ -112,6 +116,16 @@ WhisperX or Gemini.
   it. Accepted text is persisted only through PATCH.
 - Starting trivia extraction or full processing unpublishes the episode. Trivia
   replacement also enforces draft status and never republishes automatically.
+- Reviewed admin re-extraction lives under
+  `/episodes/{episode_id}/trivia-candidates`. Candidate generation stores JSON
+  in DuckDB and must not mutate live trivia or publication. Applying a ready
+  candidate validates the transcript hash, atomically replaces live trivia,
+  refreshes trivia search, and marks the episode draft. Discarding a candidate
+  leaves live trivia unchanged.
+- Trivia search uses DuckDB FTS/BM25 over question, answer, and keywords only.
+  Public search filters to published trivia and randomly deals from matching
+  cards. Admin search includes unpublished trivia and orders by BM25 relevance.
+  Rebuild/refresh the search documents when trivia or publication state changes.
 
 ## Episode Management
 - `PATCH /episodes/{episode_id}/publication` accepts an `is_published` boolean

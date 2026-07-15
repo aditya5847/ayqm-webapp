@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 JobKind = Literal["transcribe", "extract_trivia", "process"]
 EpisodeKind = Literal["main", "mini", "announcement"]
+TriviaCandidateStatus = Literal["running", "ready", "failed", "applied", "discarded"]
 
 
 class AdminLogin(BaseModel):
@@ -194,6 +195,28 @@ class TriviaSearchPageOut(BaseModel):
     page_size: int
     total_items: int
     total_pages: int
+
+
+class TriviaExtractionCandidateOut(BaseModel):
+    id: str
+    episode_id: str
+    job_id: str
+    status: TriviaCandidateStatus
+    prompt_version: str
+    model: str
+    transcript_sha256: str
+    trivia: list[TriviaItemOut] = Field(default_factory=list)
+    usage_json: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    applied_at: datetime | None = None
+
+
+class TriviaCandidateReviewOut(BaseModel):
+    episode_id: str
+    current_trivia: list[TriviaItemOut] = Field(default_factory=list)
+    candidate: TriviaExtractionCandidateOut | None = None
 
 
 class EpisodeUpdate(BaseModel):

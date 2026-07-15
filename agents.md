@@ -48,6 +48,11 @@ when working deeply in those areas. This root file is the project-wide contract.
 - Publication is controlled by `PATCH /episodes/{episode_id}/publication`.
   Publishing is valid with zero trivia. Starting trivia extraction or full
   processing returns the episode to draft.
+- Admin reviewed trivia re-extraction uses
+  `/episodes/{episode_id}/trivia-candidates`: generation stores a draft
+  candidate, review reads current trivia plus the candidate, apply atomically
+  replaces live trivia and returns the episode to draft, and discard leaves live
+  trivia unchanged.
 - `DELETE /episodes/{episode_id}` permanently removes episode speaker
   selections, mappings, transcript, trivia, jobs, and the episode row in one
   transaction. Retain `gemini_usage`.
@@ -62,6 +67,9 @@ when working deeply in those areas. This root file is the project-wide contract.
   disabled or an external transcription worker is configured.
 - Trivia extraction requires a completed diarized transcript and complete speaker
   mapping.
+- Gemini trivia extraction is chunked, uses the active prompt in code, and
+  records historical prompt text in `docs/trivia-prompt-history.md`. Future
+  prompt changes should update both the active code prompt and that history doc.
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` is required for trivia extraction and
   rephrasing. Keep credentials in local environment configuration; never commit
   them.
@@ -90,9 +98,9 @@ when working deeply in those areas. This root file is the project-wide contract.
 - Public `/trivia` defaults to four random published trivia cards.
 - Public trivia search uses `?q=...`, searches only published trivia, returns
   four random matching cards, and refreshes by excluding the current card IDs.
-- Public trivia search is keyword-based, case-insensitive, and splits multi-word
-  queries into required terms across question, answer, and keywords. It is not
-  semantic search.
+- Public trivia search uses DuckDB FTS/BM25 over question, answer, and keywords
+  only. Matching terms qualify the pool; public results remain randomly dealt
+  from matching published cards. It is not semantic/vector search.
 - The About page guest list is data-driven from public speakers plus published
   episodes. Exclude host names. Guest episode links use `#<episode number>`
   labels.
@@ -108,19 +116,22 @@ when working deeply in those areas. This root file is the project-wide contract.
   bottom of the list.
 - Admin global trivia search lives at `/admin/trivia`. It searches all trivia,
   including unpublished episodes, and returns paginated results.
-- Admin trivia search uses the same keyword behavior as public search, but is
-  authenticated and not publication-filtered.
+- Admin trivia search uses the same DuckDB FTS/BM25 search documents as public
+  search, but is authenticated, includes unpublished episodes, and orders
+  paginated results by relevance.
 - Upload fields must visibly mark required fields with `*` and use native
   required validation where applicable.
 - Episode workspace tabs are routed. Overview is read-only. Details owns
   metadata editing. Transcript defaults to mapped-speaker script blocks with a
-  raw JSON alternate. Trivia remains read-only until an item is explicitly
-  edited.
+  raw JSON alternate. Trivia owns reviewed candidate generation/replacement and
+  remains read-only until an item is explicitly edited.
 - Before trivia extraction, every detected diarization label must be mapped to a
   selected episode speaker.
 - Trivia editing uses `PATCH /trivia/{trivia_id}`. Deletion uses
   `DELETE /trivia/{trivia_id}`. AI rephrasing uses
   `POST /trivia/{trivia_id}/rephrase` and never persists without explicit save.
+- Admin re-extraction should not overwrite live trivia directly. Generate a
+  candidate, compare old vs new in the Trivia tab, then apply or discard.
 - Treat only `404`, `405`, and `501` from planned endpoints as unsupported and
   show Coming Soon. Display other errors normally.
 - Keep public and admin layouts separate. Public navigation must not expose

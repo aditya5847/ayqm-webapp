@@ -38,6 +38,10 @@ editorial; keep admin pages dense and operational.
   `DELETE /trivia/{trivia_id}`; AI suggestions use
   `POST /trivia/{trivia_id}/rephrase`. Suggestions are never saved without an
   explicit user action.
+- Reviewed trivia re-extraction uses
+  `/episodes/{episode_id}/trivia-candidates`. The Trivia tab starts candidate
+  generation, shows old trivia vs new candidate trivia, and exposes explicit
+  apply/discard actions. Candidate generation must not imply live replacement.
 - Treat only `404`, `405`, and `501` from planned endpoints as unsupported and
   show the view-specific Coming Soon panel. Display other errors normally.
 - Production reads `VITE_API_BASE_URL`; local development continues through the
@@ -59,8 +63,11 @@ editorial; keep admin pages dense and operational.
 - Public listening links use `source_url`; do not expose uploaded audio.
 - Episode workspaces use routed tabs. Overview is read-only, Details owns
   metadata editing, Transcript defaults to mapped-speaker script blocks with a
-  raw JSON alternate, and Trivia remains read-only until an item is explicitly
-  put into edit mode.
+  raw JSON alternate, and Trivia owns reviewed extraction plus read-only cards
+  until an item is explicitly put into edit mode.
+- Public trivia search is backed by DuckDB FTS/BM25 over trivia question,
+  answer, and keywords only. The public page still deals random matching cards;
+  admin search is paginated and relevance ordered.
 - Episode labels must distinguish main episodes, mini episodes, and unnumbered
   announcements without rendering `Episode null`.
 
@@ -76,6 +83,8 @@ editorial; keep admin pages dense and operational.
 - Keep Overview metadata read-only, but make its processing action order
   Transcribe, Extract trivia, Publish/Unpublish, and Refresh. Disable publication
   while its mutation or any episode job is active.
+- Overview's Extract trivia action should route to the Trivia tab reviewed
+  extraction flow rather than directly overwriting live trivia.
 - Use `PATCH /episodes/{episode_id}/publication`. Show
   Publish for drafts and Unpublish for published episodes, refresh admin/public
   queries on success, and refresh immediately when trivia extraction returns an
