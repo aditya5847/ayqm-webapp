@@ -8,12 +8,13 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v2.1"
 DEFAULT_MAX_OUTPUT_TOKENS = 8192
 DEFAULT_CHUNK_TARGET_CHARS = 18000
 DEFAULT_CHUNK_OVERLAP_SEGMENTS = 2
 DEFAULT_INPUT_PRICE_PER_1M = 0.25
 DEFAULT_OUTPUT_PRICE_PER_1M = 1.50
+TIMESTAMP_TOLERANCE_SECONDS = 2.0
 
 
 class TimestampRange(BaseModel):
@@ -127,8 +128,15 @@ def chunk_segments(
     return chunks
 
 
+def chunk_bounds(segments: list[dict[str, Any]]) -> tuple[float, float]:
+    if not segments:
+        return (0.0, 0.0)
+    return (float(segments[0]["start"]), float(max(segment["end"] for segment in segments)))
+
+
 def build_prompt(transcript: dict[str, Any] | list[dict[str, Any]]) -> str:
     segments = normalize_segments(transcript) if isinstance(transcript, dict) else transcript
+    chunk_start, chunk_end = chunk_bounds(segments)
     lines = [
         _segment_line(segment)
         for segment in segments
@@ -136,6 +144,8 @@ def build_prompt(transcript: dict[str, Any] | list[dict[str, Any]]) -> str:
     return """You are a strict transcript-grounded trivia extractor and quiz editor.
 
 Extract high-quality trivia from this podcast transcript chunk from beginning to end. Do not stop early. Aim for high recall while preserving strict transcript grounding and quiz quality.
+
+The transcript chunk below is one slice of a longer episode. Every timestamp shown in the transcript lines is an absolute full-episode timestamp, not a chunk-relative timestamp. This chunk covers {chunk_start_display}-{chunk_end_display} on the full episode timeline. Return timestamps on that same full-episode timeline. Do not reset timestamps to 00:00:00 for the start of this chunk.
 
 Return a JSON object matching the provided schema, with a top-level "trivia" array. Each item must be exactly one of:
 - asked_question: a quiz/trivia question actually asked in the episode.
@@ -197,7 +207,57 @@ Quality bar:
 A valid trivia item should be understandable without reading the transcript. The question should be clear, the answer should be specific, and the item should have enough support in the transcript chunk to avoid hallucination.
 
 Transcript chunk:
-""" + "\n".join(lines)
+""".format(
+        chunk_start_display=format_timestamp(chunk_start),
+        chunk_end_display=format_timestamp(chunk_end),
+    ) + "\n".join(lines)
+
+
+def _timestamp_display(start: float, end: float) -> str:
+    return f"{format_timestamp(start)}-{format_timestamp(end)}"
+
+
+def _is_within_range(start: float, end: float, range_start: float, range_end: float) -> bool:
+    return start >= range_start - TIMESTAMP_TOLERANCE_SECONDS and end <= range_end + TIMESTAMP_TOLERANCE_SECONDS
+
+
+def _normalize_item_timestamp(item: TriviaItem, chunk_start: float, chunk_end: float) -> TriviaItem | None:
+    start = float(item.timestamps.start)
+    end = float(item.timestamps.end)
+    if end < start:
+        return None
+
+    if _is_within_range(start, end, chunk_start, chunk_end):
+        corrected_start = max(0.0, start)
+        corrected_end = max(corrected_start, end)
+    else:
+        chunk_duration = max(0.0, chunk_end - chunk_start)
+        looks_chunk_relative = (
+            chunk_start > TIMESTAMP_TOLERANCE_SECONDS
+            and start >= -TIMESTAMP_TOLERANCE_SECONDS
+            and end <= chunk_duration + TIMESTAMP_TOLERANCE_SECONDS
+        )
+        if not looks_chunk_relative:
+            return None
+        corrected_start = chunk_start + max(0.0, start)
+        corrected_end = chunk_start + max(0.0, end)
+        if not _is_within_range(corrected_start, corrected_end, chunk_start, chunk_end):
+            return None
+
+    item.timestamps.start = corrected_start
+    item.timestamps.end = corrected_end
+    item.timestamps.display = _timestamp_display(corrected_start, corrected_end)
+    return item
+
+
+def normalize_trivia_timestamps(items: list[TriviaItem], chunk: list[dict[str, Any]]) -> list[TriviaItem]:
+    chunk_start, chunk_end = chunk_bounds(chunk)
+    normalized: list[TriviaItem] = []
+    for item in items:
+        corrected = _normalize_item_timestamp(item, chunk_start, chunk_end)
+        if corrected is not None:
+            normalized.append(corrected)
+    return normalized
 
 
 def _actual_usage(response: Any) -> ActualUsage:
@@ -285,7 +345,7 @@ def extract_trivia(
                 response_schema=TriviaExtraction,
             ),
         )
-        trivia.extend(_parse_extraction(response).trivia)
+        trivia.extend(normalize_trivia_timestamps(_parse_extraction(response).trivia, chunk))
         actual_usages.append(_actual_usage(response))
     input_price = float(os.environ.get("AYQM_GEMINI_INPUT_PRICE_PER_1M", DEFAULT_INPUT_PRICE_PER_1M))
     return ExtractionOutput(
