@@ -48,7 +48,10 @@ GEMINI_API_KEY=<paid-project-key>
 ```
 
 5. Enable Railway daily volume backups. Keep the independent R2 export enabled.
-6. Generate a Railway custom domain for `api.example.com` and add its CNAME in
+6. The API initializes DuckDB's `fts` extension for trivia search. The first
+   startup must be able to install/load DuckDB extensions; later starts use the
+   cached extension on the Railway volume/container cache.
+7. Generate a Railway custom domain for `api.example.com` and add its CNAME in
    Cloudflare. Verify `/health/live` and `/health/ready` before continuing.
 
 ## 3. Deploy Cloudflare Pages

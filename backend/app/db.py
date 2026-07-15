@@ -8,6 +8,7 @@ import duckdb
 from duckdb import DuckDBPyConnection
 
 from .config import get_settings
+from .search import ensure_trivia_search
 
 
 _database_lock = RLock()
@@ -254,6 +255,7 @@ def initialize_database(database_path: Path | str | None = None) -> None:
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS episodes_rss_guid_idx ON episodes(rss_guid)"
             )
+            ensure_trivia_search(conn)
         finally:
             conn.close()
 

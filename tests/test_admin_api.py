@@ -419,6 +419,58 @@ def test_admin_trivia_search_includes_unpublished_items_and_paginates(client):
     assert {item["answer"] for item in returned} == {"Published answer.", "Draft answer."}
 
 
+def test_trivia_search_uses_full_text_terms_without_episode_or_speaker_metadata(client):
+    speaker = _speaker(client, "Nebula Guest")
+    episode = _episode(client, [speaker["id"]])
+    _seed_custom_trivia(
+        episode["id"],
+        [{"question": "Which planet has unusual rotation?", "answer": "Venus.", "keywords": ["orbit"]}],
+    )
+    assert client.patch(
+        f"/episodes/{episode['id']}",
+        json={
+            "episode_title": "Nebula Special",
+            "episode_number": episode["episode_number"],
+            "episode_description": episode["episode_description"],
+            "published_at": episode["published_at"],
+            "source_url": episode["source_url"],
+            "speaker_ids": [speaker["id"]],
+            "is_published": True,
+        },
+    ).status_code == 200
+
+    word_form_match = client.get("/public/trivia/random", params={"limit": 4, "q": "rotating planets"})
+    assert word_form_match.status_code == 200
+    assert [item["answer"] for item in word_form_match.json()] == ["Venus."]
+
+    assert client.get("/public/trivia/random", params={"limit": 4, "q": "nebula"}).json() == []
+    assert client.get("/trivia/search", params={"q": "nebula"}).json()["total_items"] == 0
+
+
+def test_trivia_search_index_refreshes_after_edit_delete_and_publication_changes(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    trivia_id = _seed_trivia(episode["id"])
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True}).status_code == 200
+
+    assert client.get("/public/trivia/random", params={"limit": 4, "q": "original"}).json()[0]["id"] == trivia_id
+
+    update = client.patch(
+        f"/trivia/{trivia_id}",
+        json={"question": "Edited asteroid question?", "answer": "Ceres.", "keywords": ["asteroid"]},
+    )
+    assert update.status_code == 200
+    assert client.get("/trivia/search", params={"q": "asteroids"}).json()["total_items"] == 1
+    assert client.get("/trivia/search", params={"q": "original"}).json()["total_items"] == 0
+
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": False}).status_code == 200
+    assert client.get("/public/trivia/random", params={"limit": 4, "q": "asteroid"}).json() == []
+    assert client.get("/trivia/search", params={"q": "asteroid"}).json()["total_items"] == 1
+
+    assert client.delete(f"/trivia/{trivia_id}").status_code == 204
+    assert client.get("/trivia/search", params={"q": "asteroid"}).json()["total_items"] == 0
+
+
 def test_manual_asker_survives_remap_and_clears_when_speaker_is_deselected(client):
     mapped_speaker = _speaker(client, "Ada")
     manual_speaker = _speaker(client, "Grace")

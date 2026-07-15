@@ -6,6 +6,7 @@ from uuid import uuid4
 from duckdb import DuckDBPyConnection
 
 from .schemas import EpisodeMetadata, EpisodeUpdate, JobKind, JobStatus
+from .search import refresh_trivia_search_index, trivia_search_score_sql
 
 
 def now_utc() -> datetime:
@@ -347,6 +348,7 @@ def update_episode(conn: DuckDBPyConnection, episode_id: str, request: EpisodeUp
     except Exception:
         conn.execute("ROLLBACK")
         raise
+    refresh_trivia_search_index(conn)
     return get_episode(conn, episode_id)
 
 
@@ -355,6 +357,7 @@ def set_episode_published(conn: DuckDBPyConnection, episode_id: str, published: 
         "UPDATE episodes SET is_published = ?, updated_at = ? WHERE id = ?",
         [published, now_utc(), episode_id],
     )
+    refresh_trivia_search_index(conn)
 
 
 def get_published_episode(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | None:
@@ -649,6 +652,7 @@ def delete_episode(conn: DuckDBPyConnection, episode_id: str) -> bool:
     except Exception:
         conn.execute("ROLLBACK")
         raise
+    refresh_trivia_search_index(conn)
     return True
 
 
@@ -868,6 +872,7 @@ def save_trivia_items(
             ],
         )
     touch_episode(conn, episode_id)
+    refresh_trivia_search_index(conn)
 
 
 def recompute_trivia_askers(conn: DuckDBPyConnection, episode_id: str) -> None:
@@ -944,6 +949,7 @@ def update_trivia_item(
             [*values, trivia_id],
         )
         touch_episode(conn, item["episode_id"])
+        refresh_trivia_search_index(conn)
     return get_trivia_item(conn, trivia_id)
 
 
@@ -953,6 +959,7 @@ def delete_trivia_item(conn: DuckDBPyConnection, trivia_id: str) -> str | None:
         return None
     conn.execute("DELETE FROM trivia_items WHERE id = ?", [trivia_id])
     touch_episode(conn, item["episode_id"])
+    refresh_trivia_search_index(conn)
     return item["episode_id"]
 
 
@@ -1022,7 +1029,17 @@ def list_random_public_trivia(
     def random_rows(excluded: list[str], row_limit: int) -> list[tuple[Any, ...]]:
         filters = ["e.is_published = TRUE"]
         params: list[Any] = []
-        _append_trivia_search_filters(filters, params, query)
+        join_search = ""
+        if query:
+            score_sql = trivia_search_score_sql()
+            join_search = f"""
+            JOIN (
+                SELECT trivia_id, {score_sql} AS score
+                FROM trivia_search_documents tsd
+            ) search ON search.trivia_id = ti.id
+            """
+            filters.append("search.score IS NOT NULL")
+            params.append(query)
         if excluded:
             placeholders = ", ".join("?" for _ in excluded)
             filters.append(f"ti.id NOT IN ({placeholders})")
@@ -1035,6 +1052,7 @@ def list_random_public_trivia(
                 ti.speaker_diarization, ti.asker_speaker_id, s.name, ti.confidence, ti.created_at
             FROM trivia_items ti
             JOIN episodes e ON e.id = ti.episode_id
+            {join_search}
             LEFT JOIN speakers s ON s.id = ti.asker_speaker_id
             WHERE {' AND '.join(filters)}
             ORDER BY random()
@@ -1057,42 +1075,47 @@ def search_trivia_items(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
-    filters: list[str] = []
-    params: list[Any] = []
-    _append_trivia_search_filters(filters, params, query)
-    if not filters:
+    if not query.strip():
         return {"items": [], "page": 1, "page_size": page_size, "total_items": 0, "total_pages": 0}
 
-    where = " AND ".join(filters)
+    score_sql = trivia_search_score_sql()
     total_items = int(
         conn.execute(
             f"""
             SELECT COUNT(*)
-            FROM trivia_items ti
-            JOIN episodes e ON e.id = ti.episode_id
-            WHERE {where}
+            FROM (
+                SELECT {score_sql} AS score
+                FROM trivia_search_documents tsd
+            ) search
+            WHERE search.score IS NOT NULL
             """,
-            params,
+            [query],
         ).fetchone()[0]
     )
     total_pages = (total_items + page_size - 1) // page_size
     effective_page = min(page, max(total_pages, 1))
     rows = conn.execute(
         f"""
+        WITH search AS (
+            SELECT trivia_id, {score_sql} AS score
+            FROM trivia_search_documents tsd
+        )
         SELECT
             ti.id, ti.episode_id, ti.type, ti.question, ti.answer, ti.keywords,
             ti.timestamp_start, ti.timestamp_end, ti.timestamp_display,
             ti.speaker_diarization, ti.asker_speaker_id, s.name, ti.confidence, ti.created_at,
             e.episode_title, e.episode_number, e.episode_kind, e.published_at, e.is_published
         FROM trivia_items ti
+        JOIN search ON search.trivia_id = ti.id
         JOIN episodes e ON e.id = ti.episode_id
         LEFT JOIN speakers s ON s.id = ti.asker_speaker_id
-        WHERE {where}
-        ORDER BY COALESCE(e.published_at, e.created_at) DESC,
+        WHERE search.score IS NOT NULL
+        ORDER BY search.score DESC,
+                 COALESCE(e.published_at, e.created_at) DESC,
                  ti.timestamp_start, ti.id
         LIMIT ? OFFSET ?
         """,
-        [*params, page_size, (effective_page - 1) * page_size],
+        [query, page_size, (effective_page - 1) * page_size],
     ).fetchall()
     return {
         "items": [_trivia_search_result_from_row(row) for row in rows],
