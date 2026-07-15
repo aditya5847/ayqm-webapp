@@ -172,6 +172,30 @@ export interface AdminTriviaSearchPage {
   total_pages: number;
 }
 
+export type TriviaCandidateStatus = "running" | "ready" | "failed" | "applied" | "discarded";
+
+export interface TriviaExtractionCandidate {
+  id: string;
+  episode_id: string;
+  job_id: string;
+  status: TriviaCandidateStatus;
+  prompt_version: string;
+  model: string;
+  transcript_sha256: string;
+  trivia: TriviaItem[];
+  usage_json: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+}
+
+export interface TriviaCandidateReview {
+  episode_id: string;
+  current_trivia: TriviaItem[];
+  candidate: TriviaExtractionCandidate | null;
+}
+
 export interface TriviaUpdateInput {
   type: string;
   question: string | null;

@@ -6,10 +6,10 @@ import {
 } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
-  apiAssetUrl, deleteEpisode, deleteTriviaItem, getEpisode, getJob, getSpeakerLabels,
-  getSpeakerMapping, getTranscript, getTrivia, isUnsupportedFeature, listSpeakers,
-  rephraseTriviaItem, saveSpeakerMapping, startTranscription, startTriviaExtraction,
-  updateEpisode, updateEpisodePublication, updateTriviaItem
+  apiAssetUrl, applyTriviaCandidate, deleteEpisode, deleteTriviaItem, discardTriviaCandidate, getEpisode,
+  getJob, getSpeakerLabels, getSpeakerMapping, getTranscript, getTrivia, getTriviaCandidateReview,
+  isUnsupportedFeature, listSpeakers, rephraseTriviaItem, saveSpeakerMapping, startTranscription,
+  startTriviaCandidateExtraction, updateEpisode, updateEpisodePublication, updateTriviaItem
 } from "./api";
 import type { Episode, Job, JobAccepted, Speaker, SpeakerLabels, TriviaItem, TriviaUpdateInput } from "./types";
 import { transcriptScriptBlocks } from "./transcript";
@@ -89,7 +89,6 @@ export function EpisodeOverviewTab() {
   const currentJob = job.data ?? episode.active_job ?? undefined;
   const processing = shouldPollJob(currentJob);
   const transcribe = useMutation({ mutationFn: () => startTranscription(episodeId), onSuccess: accepted => setJob(accepted, setActiveJobId) });
-  const extract = useMutation({ mutationFn: () => startTriviaExtraction(episodeId), onSuccess: accepted => { setJob(accepted, setActiveJobId); refreshEpisode(client, episodeId); } });
   const publication = useMutation({
     mutationFn: () => updateEpisodePublication(episodeId, !(episode.is_published ?? false)),
     onSuccess: updated => {
@@ -137,12 +136,12 @@ export function EpisodeOverviewTab() {
         {(activeJobId || episode.active_job) && <JobPanel job={currentJob} error={job.error} />}
         <div className="action-strip">
           <button className="button" type="button" onClick={() => transcribe.mutate()} disabled={transcribe.isPending || processing}><Mic2 size={16} />Transcribe</button>
-          <button className="button" type="button" onClick={() => extract.mutate()} disabled={extract.isPending || processing || !mappingComplete}><Sparkles size={16} />Extract trivia</button>
+          <button className="button" type="button" onClick={() => navigate(`/admin/episodes/${episodeId}/trivia`)} disabled={processing || !mappingComplete}><Sparkles size={16} />Extract trivia</button>
           <button className="button" type="button" onClick={() => publication.mutate()} disabled={publication.isPending || processing}>{episode.is_published ? <EyeOff size={16} /> : <Globe2 size={16} />}{episode.is_published ? "Hide from website" : "Show on website"}</button>
           <button className="button ghost" type="button" onClick={() => refreshEpisode(client, episodeId)}><RefreshCcw size={16} />Refresh</button>
         </div>
         {episode.transcript_status === "completed" && !labels.isLoading && !mappingComplete && <Notice>Complete the <Link to={`/admin/episodes/${episodeId}/speaker-mapping`}>speaker mapping</Link> before extracting trivia.</Notice>}
-        <ErrorMessage error={labels.error ?? transcribe.error ?? extract.error ?? publication.error} />
+        <ErrorMessage error={labels.error ?? transcribe.error ?? publication.error} />
       </section>
       <section className="workspace-section episode-danger-zone">
         <div><SectionHeading icon={<Trash2 />} title="Delete episode" /><p>Delete this episode and all of its stored content.</p></div>
@@ -253,9 +252,101 @@ export function EpisodeTranscriptTab() {
 }
 
 export function EpisodeTriviaTab() {
-  const { episode, episodeId } = useEpisodeWorkspace();
-  const trivia = useQuery({ queryKey: ["trivia", episodeId], queryFn: () => getTrivia(episodeId) });
-  return <section className="workspace-section"><SectionHeading title="Extracted trivia" hint={episode.trivia_count > 0 ? `${episode.trivia_count} items` : undefined} /><QueryState query={trivia} empty="No trivia extracted yet.">{items => <div className="admin-trivia-list">{items.map(item => <TriviaItemCard key={item.id} item={item} speakers={episode.speakers} />)}</div>}</QueryState></section>;
+  const { episode, episodeId, activeJobId, job, setActiveJobId } = useEpisodeWorkspace();
+  const client = useQueryClient();
+  const review = useQuery({ queryKey: ["trivia-candidate-review", episodeId], queryFn: () => getTriviaCandidateReview(episodeId) });
+  const labels = useQuery({
+    queryKey: ["speaker-labels", episodeId],
+    queryFn: () => getSpeakerLabels(episodeId),
+    enabled: episode.transcript_status === "completed"
+  });
+  const mappingComplete = isSpeakerMappingComplete(labels.data, mappingFromLabels(labels.data));
+  const currentJob = job.data ?? episode.active_job ?? undefined;
+  const processing = shouldPollJob(currentJob);
+  const generate = useMutation({
+    mutationFn: () => startTriviaCandidateExtraction(episodeId),
+    onSuccess: accepted => {
+      setJob(accepted, setActiveJobId);
+      void client.invalidateQueries({ queryKey: ["trivia-candidate-review", episodeId] });
+    }
+  });
+  const apply = useMutation({
+    mutationFn: (candidateId: string) => applyTriviaCandidate(episodeId, candidateId),
+    onSuccess: () => refreshEpisode(client, episodeId)
+  });
+  const discard = useMutation({
+    mutationFn: (candidateId: string) => discardTriviaCandidate(episodeId, candidateId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["trivia-candidate-review", episodeId] });
+    }
+  });
+
+  useEffect(() => {
+    if (job.data?.status === "succeeded" || job.data?.status === "failed") {
+      void client.invalidateQueries({ queryKey: ["trivia-candidate-review", episodeId] });
+    }
+  }, [client, episodeId, job.data?.status]);
+
+  return (
+    <section className="workspace-section">
+      <div className="section-title-row">
+        <SectionHeading title="Extracted trivia" hint={episode.trivia_count > 0 ? `${episode.trivia_count} live items` : undefined} />
+        <button className="button primary" type="button" onClick={() => generate.mutate()} disabled={generate.isPending || processing || !mappingComplete}>
+          {generate.isPending ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}Generate new extraction
+        </button>
+      </div>
+      {(activeJobId || episode.active_job) && <JobPanel job={currentJob} error={job.error} />}
+      {episode.transcript_status === "completed" && !labels.isLoading && !mappingComplete && <Notice>Complete the <Link to={`/admin/episodes/${episodeId}/speaker-mapping`}>speaker mapping</Link> before extracting trivia.</Notice>}
+      <ErrorMessage error={labels.error ?? generate.error ?? apply.error ?? discard.error} />
+      <QueryState query={review} empty="No trivia extracted yet.">
+        {state => {
+          const candidate = state.candidate;
+          if (candidate && candidate.status === "ready") return (
+            <div className="trivia-review">
+              <div className="trivia-review-heading">
+                <div><p className="eyebrow">Review extraction</p><h2>Current vs new trivia</h2></div>
+                <div className="form-actions">
+                  <button className="button" type="button" onClick={() => discard.mutate(candidate.id)} disabled={discard.isPending}>Discard</button>
+                  <button className="button primary" type="button" onClick={() => apply.mutate(candidate.id)} disabled={apply.isPending}>{apply.isPending ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />}Replace with new trivia</button>
+                </div>
+              </div>
+              <div className="trivia-review-grid">
+                <TriviaReviewColumn title="Current trivia" items={state.current_trivia} speakers={episode.speakers} editable />
+                <TriviaReviewColumn title="New extraction" items={candidate.trivia} speakers={episode.speakers} />
+              </div>
+            </div>
+          );
+          if (candidate && candidate.status === "failed") return (
+            <>
+              <Notice>Latest extraction failed: {candidate.error || "Unknown error"}</Notice>
+              <TriviaReviewColumn title="Current trivia" items={state.current_trivia} speakers={episode.speakers} editable />
+            </>
+          );
+          return <TriviaReviewColumn title="Current trivia" items={state.current_trivia} speakers={episode.speakers} editable />;
+        }}
+      </QueryState>
+    </section>
+  );
+}
+
+function TriviaReviewColumn({ title, items, speakers, editable = false }: { title: string; items: TriviaItem[]; speakers: Speaker[]; editable?: boolean }) {
+  return (
+    <div className="trivia-review-column">
+      <div className="trivia-column-heading"><h3>{title}</h3><span>{items.length} {items.length === 1 ? "item" : "items"}</span></div>
+      {items.length ? <div className="admin-trivia-list">{items.map(item => editable ? <TriviaItemCard key={item.id} item={item} speakers={speakers} /> : <TriviaPreviewCard key={item.id} item={item} />)}</div> : <Notice>No trivia extracted yet.</Notice>}
+    </div>
+  );
+}
+
+function TriviaPreviewCard({ item }: { item: TriviaItem }) {
+  return (
+    <article className="admin-trivia-item trivia-read-card">
+      <div className="trivia-editor-header"><div><span>{item.type}</span><strong>{triviaAskerName(item)}</strong></div><span className="muted">{timeRange(Number(item.timestamps.start ?? 0), Number(item.timestamps.end ?? item.timestamps.start ?? 0))}</span></div>
+      <h3>{item.question || "Untitled trivia item"}</h3>
+      <div className="trivia-answer"><span>Answer</span><p>{item.answer || "No answer provided."}</p></div>
+      <div className="trivia-meta"><span>{item.confidence} confidence</span>{item.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
+    </article>
+  );
 }
 
 export function TriviaItemCard({ item, speakers }: { item: TriviaItem; speakers: Speaker[] }) {
@@ -302,7 +393,7 @@ function triviaDraft(item: TriviaItem): TriviaUpdateInput { return { type: item.
 function mappingFromLabels(labels?: SpeakerLabels) { return labels ? Object.fromEntries(Object.entries(labels.mappings).map(([label, speaker]) => [label, speaker.id])) : {}; }
 function setJob(accepted: JobAccepted, setter: (id: string) => void) { setter(accepted.job_id); }
 function timeRange(start: number | null, end: number | null) { if (start === null && end === null) return "Time unavailable"; return `${formatSeconds(start ?? 0)}-${formatSeconds(end ?? start ?? 0)}`; }
-function refreshEpisode(client: ReturnType<typeof useQueryClient>, episodeId: string) { [["episode", episodeId], ["episodes"], ["public"], ["speaker-labels", episodeId], ["speaker-mapping", episodeId], ["transcript", episodeId], ["trivia", episodeId]].forEach(queryKey => void client.invalidateQueries({ queryKey })); }
+function refreshEpisode(client: ReturnType<typeof useQueryClient>, episodeId: string) { [["episode", episodeId], ["episodes"], ["public"], ["speaker-labels", episodeId], ["speaker-mapping", episodeId], ["transcript", episodeId], ["trivia", episodeId], ["trivia-candidate-review", episodeId]].forEach(queryKey => void client.invalidateQueries({ queryKey })); }
 function SectionHeading({ title, hint, icon }: { title: string; hint?: string; icon?: React.ReactNode }) { return <div className="section-heading"><div>{icon}<h2>{title}</h2></div>{hint && <p>{hint}</p>}</div>; }
 function Metric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
 function ProcessingMetric({ label, value, to, count = 0 }: { label: string; value: React.ReactNode; to: string; count?: number }) { return <Link className="metric processing-metric" to={to}><span>{label}</span><strong>{value}{count > 0 && <span className="metric-count" aria-label={`${count} trivia ${count === 1 ? "item" : "items"}`}>{count}</span>}</strong><ArrowRight aria-hidden="true" /></Link>; }

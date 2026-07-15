@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import shutil
 import re
@@ -14,11 +15,16 @@ from ..db import get_connection
 from ..repositories import (
     create_episode,
     create_job,
+    create_trivia_candidate,
     delete_episode,
+    apply_trivia_candidate,
+    discard_trivia_candidate,
     episode_artifact_keys,
     get_episode,
+    get_trivia_candidate,
     get_speaker_mapping,
     get_transcript,
+    latest_trivia_candidate,
     list_episodes_page,
     list_trivia_items,
     missing_speaker_ids,
@@ -45,12 +51,15 @@ from ..schemas import (
     TranscriptOut,
     TranscriptionRequest,
     TriviaExtractionRequest,
+    TriviaCandidateReviewOut,
+    TriviaExtractionCandidateOut,
     TriviaItemOut,
 )
 from ..services.speaker_labels import ensure_sample_clip, sanitize_label, speaker_labels_from_transcript, summarize_speaker_labels
 from ..services.artwork import episode_artwork_response
-from ..workers import extract_trivia_job, process_episode_job, transcribe_episode_job
+from ..workers import extract_trivia_candidate_job, extract_trivia_job, process_episode_job, transcribe_episode_job
 from ..storage import get_object_storage
+from ..services.trivia_extractor import PROMPT_VERSION
 
 router = APIRouter(prefix="/episodes", tags=["episodes"], dependencies=[Depends(require_admin)])
 
@@ -170,6 +179,12 @@ def _require_complete_speaker_mapping(conn, episode_id: str, transcript: dict) -
 def _require_idle_episode(episode: dict) -> None:
     if episode.get("active_job"):
         raise HTTPException(status_code=409, detail="Episode has an active processing job")
+
+
+def _transcript_sha256(transcript: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(transcript, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def _remove_episode_directory(root: Path, episode_id: str) -> None:
@@ -434,6 +449,86 @@ def read_trivia(episode_id: str) -> list[dict]:
     _require_episode(episode_id)
     with get_connection() as conn:
         return list_trivia_items(conn, episode_id)
+
+
+@router.post("/{episode_id}/trivia-candidates", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
+def start_trivia_candidate_generation(
+    episode_id: str,
+    background_tasks: BackgroundTasks,
+    request: TriviaExtractionRequest | None = None,
+) -> dict:
+    episode = _require_episode(episode_id)
+    _require_idle_episode(episode)
+    payload = request or TriviaExtractionRequest()
+    settings = get_settings()
+    model = payload.model or settings.gemini_model or "gemini-3.1-flash-lite"
+    with get_connection() as conn:
+        transcript = get_transcript(conn, episode_id)
+        if transcript is None:
+            raise HTTPException(status_code=409, detail="Episode has no transcript yet")
+        _require_complete_speaker_mapping(conn, episode_id, transcript)
+        job = create_job(conn, episode_id, "extract_trivia", {"review_candidate": True})
+        candidate = create_trivia_candidate(
+            conn,
+            episode_id=episode_id,
+            job_id=job["id"],
+            prompt_version=PROMPT_VERSION,
+            model=model,
+            transcript_sha256=_transcript_sha256(transcript),
+        )
+    background_tasks.add_task(extract_trivia_candidate_job, job["id"], candidate["id"], payload, settings)
+    return {"job_id": job["id"], "episode_id": episode_id, "status": "queued"}
+
+
+@router.get("/{episode_id}/trivia-candidates/current", response_model=TriviaCandidateReviewOut)
+def read_current_trivia_candidate(episode_id: str) -> dict:
+    _require_episode(episode_id)
+    with get_connection() as conn:
+        return {
+            "episode_id": episode_id,
+            "current_trivia": list_trivia_items(conn, episode_id),
+            "candidate": latest_trivia_candidate(conn, episode_id),
+        }
+
+
+@router.post(
+    "/{episode_id}/trivia-candidates/{candidate_id}/apply",
+    response_model=TriviaExtractionCandidateOut,
+)
+def apply_trivia_candidate_route(episode_id: str, candidate_id: str) -> dict:
+    _require_episode(episode_id)
+    with get_connection() as conn:
+        candidate = get_trivia_candidate(conn, candidate_id)
+        if candidate is None or candidate["episode_id"] != episode_id:
+            raise HTTPException(status_code=404, detail="Trivia candidate not found")
+        transcript = get_transcript(conn, episode_id)
+        if transcript is None:
+            raise HTTPException(status_code=409, detail="Episode has no transcript yet")
+        if _transcript_sha256(transcript) != candidate["transcript_sha256"]:
+            raise HTTPException(status_code=409, detail="Transcript changed since candidate generation")
+        try:
+            applied = apply_trivia_candidate(conn, candidate_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if applied is None:
+        raise HTTPException(status_code=404, detail="Trivia candidate not found")
+    return applied
+
+
+@router.post(
+    "/{episode_id}/trivia-candidates/{candidate_id}/discard",
+    response_model=TriviaExtractionCandidateOut,
+)
+def discard_trivia_candidate_route(episode_id: str, candidate_id: str) -> dict:
+    _require_episode(episode_id)
+    with get_connection() as conn:
+        candidate = get_trivia_candidate(conn, candidate_id)
+        if candidate is None or candidate["episode_id"] != episode_id:
+            raise HTTPException(status_code=404, detail="Trivia candidate not found")
+        discarded = discard_trivia_candidate(conn, candidate_id)
+    if discarded is None:
+        raise HTTPException(status_code=404, detail="Trivia candidate not found")
+    return discarded
 
 
 @router.get("/{episode_id}/speaker-labels", response_model=SpeakerLabelsOut)

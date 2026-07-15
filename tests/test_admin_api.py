@@ -471,6 +471,122 @@ def test_trivia_search_index_refreshes_after_edit_delete_and_publication_changes
     assert client.get("/trivia/search", params={"q": "asteroid"}).json()["total_items"] == 0
 
 
+def test_trivia_candidate_generation_reviews_before_apply(client, monkeypatch):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    live_trivia_id = _seed_trivia(episode["id"])
+    with get_connection() as conn:
+        save_transcript(
+            conn,
+            episode["id"],
+            "/tmp/transcript.json",
+            {"segments": [{"start": 0, "end": 1, "text": "Candidate fact", "speaker": "SPEAKER_00"}]},
+        )
+        replace_speaker_mapping(conn, episode["id"], {"SPEAKER_00": speaker["id"]})
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True}).status_code == 200
+
+    def fake_run_trivia_extraction(transcript, episode_dir, request, settings):
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        artifact = {
+            "model": "gemini-test",
+            "usage": {
+                "estimated": {"input_tokens": 100, "estimated_input_cost_usd": 0.0001},
+                "actual": {
+                    "prompt_token_count": 100,
+                    "candidates_token_count": 20,
+                    "thoughts_token_count": 0,
+                    "total_token_count": 120,
+                    "actual_cost_usd": 0.0002,
+                },
+            },
+            "trivia": [
+                {
+                    "type": "mentioned_trivia",
+                    "question": "Candidate question?",
+                    "answer": "Candidate answer.",
+                    "keywords": ["candidate", "search"],
+                    "timestamps": {"start": 0, "end": 1, "display": "00:00:00-00:00:01"},
+                    "speaker_diarization": {"asker_speaker": "SPEAKER_00"},
+                    "confidence": "high",
+                }
+            ],
+        }
+        path = episode_dir / "trivia.json"
+        path.write_text(json.dumps(artifact), encoding="utf-8")
+        return [], path
+
+    monkeypatch.setattr("backend.app.workers.run_trivia_extraction", fake_run_trivia_extraction)
+
+    response = client.post(f"/episodes/{episode['id']}/trivia-candidates", json={})
+    assert response.status_code == 202
+    assert client.get(f"/jobs/{response.json()['job_id']}").json()["status"] == "succeeded"
+
+    assert client.get(f"/episodes/{episode['id']}/trivia").json()[0]["id"] == live_trivia_id
+    assert client.get(f"/episodes/{episode['id']}").json()["is_published"] is True
+
+    review = client.get(f"/episodes/{episode['id']}/trivia-candidates/current").json()
+    assert review["current_trivia"][0]["answer"] == "Original answer."
+    assert review["candidate"]["status"] == "ready"
+    assert review["candidate"]["trivia"][0]["answer"] == "Candidate answer."
+    assert review["candidate"]["trivia"][0]["asker"] == speaker
+
+    apply = client.post(f"/episodes/{episode['id']}/trivia-candidates/{review['candidate']['id']}/apply")
+    assert apply.status_code == 200
+    assert apply.json()["status"] == "applied"
+    live = client.get(f"/episodes/{episode['id']}/trivia").json()
+    assert len(live) == 1
+    assert live[0]["id"] == f"{episode['id']}-trivia-0001"
+    assert live[0]["answer"] == "Candidate answer."
+    assert client.get(f"/episodes/{episode['id']}").json()["is_published"] is False
+    assert client.get("/trivia/search", params={"q": "candidate search"}).json()["total_items"] == 1
+
+
+def test_trivia_candidate_discard_keeps_live_trivia(client, monkeypatch):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+    _seed_trivia(episode["id"])
+    with get_connection() as conn:
+        save_transcript(
+            conn,
+            episode["id"],
+            "/tmp/transcript.json",
+            {"segments": [{"start": 0, "end": 1, "text": "Discard fact", "speaker": "SPEAKER_00"}]},
+        )
+        replace_speaker_mapping(conn, episode["id"], {"SPEAKER_00": speaker["id"]})
+
+    def fake_run_trivia_extraction(transcript, episode_dir, request, settings):
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        artifact = {
+            "model": "gemini-test",
+            "usage": {"estimated": {"input_tokens": 1, "estimated_input_cost_usd": 0}, "actual": {}},
+            "trivia": [
+                {
+                    "type": "mentioned_trivia",
+                    "question": "Discard candidate?",
+                    "answer": "Discarded.",
+                    "keywords": ["discard"],
+                    "timestamps": {"start": 0, "end": 1, "display": "00:00:00-00:00:01"},
+                    "speaker_diarization": {},
+                    "confidence": "medium",
+                }
+            ],
+        }
+        path = episode_dir / "trivia.json"
+        path.write_text(json.dumps(artifact), encoding="utf-8")
+        return [], path
+
+    monkeypatch.setattr("backend.app.workers.run_trivia_extraction", fake_run_trivia_extraction)
+
+    response = client.post(f"/episodes/{episode['id']}/trivia-candidates", json={})
+    candidate = client.get(f"/episodes/{episode['id']}/trivia-candidates/current").json()["candidate"]
+    discard = client.post(f"/episodes/{episode['id']}/trivia-candidates/{candidate['id']}/discard")
+
+    assert response.status_code == 202
+    assert discard.status_code == 200
+    assert discard.json()["status"] == "discarded"
+    assert client.get(f"/episodes/{episode['id']}/trivia").json()[0]["answer"] == "Original answer."
+
+
 def test_manual_asker_survives_remap_and_clears_when_speaker_is_deselected(client):
     mapped_speaker = _speaker(client, "Ada")
     manual_speaker = _speaker(client, "Grace")

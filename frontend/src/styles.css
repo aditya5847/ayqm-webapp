@@ -414,6 +414,14 @@ audio { max-width: 100%; width: 100%; }
 .script-block header span { color: var(--muted); font-size: 11px; }
 .script-block p { font-family: Georgia, serif; font-size: 16px; line-height: 1.6; margin: 0; }
 .admin-trivia-list { display: grid; gap: 14px; }
+.trivia-review { display: grid; gap: 18px; }
+.trivia-review-heading { align-items: center; display: flex; gap: 18px; justify-content: space-between; }
+.trivia-review-heading h2 { font-size: 26px; line-height: 1.1; margin: 0; }
+.trivia-review-grid { align-items: start; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.trivia-review-column { display: grid; gap: 12px; min-width: 0; }
+.trivia-column-heading { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
+.trivia-column-heading h3 { font-size: 18px; margin: 0; }
+.trivia-column-heading span { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .admin-trivia-item { background: #fff; border: 1px solid #d2d1cc; border-left: 6px solid var(--cyan); border-radius: 4px; padding: 16px; }
 .admin-trivia-results { display: grid; gap: 14px; }
 .admin-trivia-result { background: #fff; border: 1px solid #d2d1cc; border-left: 6px solid var(--yellow); border-radius: 4px; padding: 16px; }
@@ -490,6 +498,7 @@ audio { max-width: 100%; width: 100%; }
   .episode-strip { gap: 16px; }
   .admin-shell { grid-template-columns: 190px minmax(0, 1fr); }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trivia-review-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {

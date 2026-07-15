@@ -23,6 +23,8 @@ import type {
   SundayQuizQuestionInput,
   SundayQuizAttemptResult,
   TranscriptResponse,
+  TriviaCandidateReview,
+  TriviaExtractionCandidate,
   TriviaItem,
   TriviaRephraseSuggestion,
   TriviaUpdateInput
@@ -240,6 +242,13 @@ export async function startTriviaExtraction(episodeId: string): Promise<JobAccep
   });
 }
 
+export async function startTriviaCandidateExtraction(episodeId: string): Promise<JobAccepted> {
+  return request<JobAccepted>(`/episodes/${episodeId}/trivia-candidates`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
 export async function getJob(jobId: string): Promise<Job> {
   return request<Job>(`/jobs/${jobId}`);
 }
@@ -261,6 +270,22 @@ export async function getTranscript(episodeId: string): Promise<TranscriptRespon
 
 export async function getTrivia(episodeId: string): Promise<TriviaItem[]> {
   return request<TriviaItem[]>(`/episodes/${episodeId}/trivia`);
+}
+
+export async function getTriviaCandidateReview(episodeId: string): Promise<TriviaCandidateReview> {
+  return request<TriviaCandidateReview>(`/episodes/${episodeId}/trivia-candidates/current`);
+}
+
+export async function applyTriviaCandidate(episodeId: string, candidateId: string): Promise<TriviaExtractionCandidate> {
+  return request<TriviaExtractionCandidate>(`/episodes/${episodeId}/trivia-candidates/${candidateId}/apply`, {
+    method: "POST"
+  });
+}
+
+export async function discardTriviaCandidate(episodeId: string, candidateId: string): Promise<TriviaExtractionCandidate> {
+  return request<TriviaExtractionCandidate>(`/episodes/${episodeId}/trivia-candidates/${candidateId}/discard`, {
+    method: "POST"
+  });
 }
 
 export async function searchAdminTrivia(query: string, page = 1, pageSize = 30): Promise<AdminTriviaSearchPage> {

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { TriviaItemCard } from "./episode-admin";
-import type { Episode, TriviaItem } from "./types";
+import type { Episode, TriviaCandidateReview, TriviaItem } from "./types";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -198,11 +198,50 @@ describe("trivia editing", () => {
   });
 });
 
-function requestRouter(data: { episode: Episode; episodes?: Episode[]; speakers?: Episode["speakers"]; transcript?: Record<string, unknown>; mappings?: Record<string, Episode["speakers"][number]> }) {
+describe("trivia extraction review", () => {
+  it("renders candidate trivia and applies it explicitly", async () => {
+    const review: TriviaCandidateReview = {
+      episode_id: "episode-1",
+      current_trivia: [trivia],
+      candidate: {
+        id: "candidate-1",
+        episode_id: "episode-1",
+        job_id: "job-1",
+        status: "ready",
+        prompt_version: "v2",
+        model: "gemini-test",
+        transcript_sha256: "hash",
+        usage_json: {},
+        error: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        applied_at: null,
+        trivia: [{ ...trivia, id: "candidate-item-1", question: "Candidate question?", answer: "Candidate answer.", keywords: ["candidate"] }]
+      }
+    };
+    const fetchMock = vi.fn(requestRouter({ episode, candidateReview: review }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp("/admin/episodes/episode-1/trivia");
+
+    expect(await screen.findByRole("heading", { name: "Current vs new trivia" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Original question?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Candidate question?" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Replace with new trivia" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/episodes/episode-1/trivia-candidates/candidate-1/apply",
+      expect.objectContaining({ method: "POST" })
+    ));
+  });
+});
+
+function requestRouter(data: { episode: Episode; episodes?: Episode[]; speakers?: Episode["speakers"]; transcript?: Record<string, unknown>; mappings?: Record<string, Episode["speakers"][number]>; candidateReview?: TriviaCandidateReview }) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/auth/session")) return json({ authenticated: true });
     if (url.endsWith("/episodes/episode-1/publication") && init?.method === "PATCH") return json({ ...data.episode, is_published: true });
+    if (url.endsWith("/episodes/episode-1/trivia-candidates/candidate-1/apply") && init?.method === "POST") return json(data.candidateReview?.candidate);
+    if (url.endsWith("/episodes/episode-1/trivia-candidates/current")) return json(data.candidateReview ?? { episode_id: "episode-1", current_trivia: [trivia], candidate: null });
     if (url.endsWith("/episodes/episode-1") && init?.method === "DELETE") return new Response(null, { status: 204 });
     if (url.endsWith("/episodes/episode-1/transcript")) return json({ episode_id: "episode-1", transcript: data.transcript ?? {} });
     if (url.endsWith("/episodes/episode-1/speaker-labels")) return json({

@@ -197,6 +197,25 @@ def initialize_database(database_path: Path | str | None = None) -> None:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS trivia_extraction_candidates (
+                    id VARCHAR PRIMARY KEY,
+                    episode_id VARCHAR NOT NULL,
+                    job_id VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL,
+                    prompt_version VARCHAR NOT NULL,
+                    model VARCHAR NOT NULL,
+                    transcript_sha256 VARCHAR NOT NULL,
+                    candidate_json JSON NOT NULL DEFAULT '{"trivia":[]}',
+                    usage_json JSON NOT NULL DEFAULT '{}',
+                    error VARCHAR,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    applied_at TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS sunday_quizzes (
                     id VARCHAR PRIMARY KEY,
                     quiz_date DATE NOT NULL,
