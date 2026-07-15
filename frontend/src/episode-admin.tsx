@@ -344,7 +344,7 @@ function TriviaPreviewCard({ item }: { item: TriviaItem }) {
       <div className="trivia-editor-header"><div><span>{item.type}</span><strong>{triviaAskerName(item)}</strong></div><span className="muted">{timeRange(Number(item.timestamps.start ?? 0), Number(item.timestamps.end ?? item.timestamps.start ?? 0))}</span></div>
       <h3>{item.question || "Untitled trivia item"}</h3>
       <div className="trivia-answer"><span>Answer</span><p>{item.answer || "No answer provided."}</p></div>
-      <div className="trivia-meta"><span>{item.confidence} confidence</span>{item.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
+      <div className="trivia-meta"><span className={`confidence-chip confidence-${item.confidence.toLowerCase()}`}>{item.confidence} confidence</span>{item.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
     </article>
   );
 }
@@ -365,7 +365,7 @@ export function TriviaItemCard({ item, speakers }: { item: TriviaItem; speakers:
       <div className="trivia-editor-header"><div><span>{item.type}</span><strong>{triviaAskerName(item)}</strong></div><button className="button compact-button" type="button" onClick={() => setEditing(true)}><Pencil size={15} />Edit</button></div>
       <h3>{item.question || "Untitled trivia item"}</h3>
       <div className="trivia-answer"><span>Answer</span><p>{item.answer || "No answer provided."}</p></div>
-      <div className="trivia-meta"><span>{item.confidence} confidence</span>{item.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
+      <div className="trivia-meta"><span className={`confidence-chip confidence-${item.confidence.toLowerCase()}`}>{item.confidence} confidence</span>{item.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
     </article>
   );
 
