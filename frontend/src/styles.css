@@ -394,6 +394,15 @@ textarea { resize: vertical; }
 .processing-metric > svg { color: var(--muted); height: 16px; position: absolute; right: 11px; top: 11px; width: 16px; }
 .processing-metric strong { align-items: center; display: flex; gap: 8px; }
 .metric .metric-count { align-items: center; background: var(--yellow); border: 1px solid var(--ink); border-radius: 999px; color: var(--ink); display: inline-flex; font-size: 11px; justify-content: center; min-height: 23px; min-width: 23px; padding: 3px 7px; }
+.trivia-extraction-status { align-items: center; background: #fff; border: 1px solid #d2d1cc; border-left: 5px solid var(--orange); border-radius: 4px; display: flex; gap: 10px; margin: -2px 0 15px; max-width: 520px; padding: 10px 12px; }
+.trivia-extraction-status.current { border-left-color: #2f8b3c; }
+.trivia-extraction-status.outdated { border-left-color: var(--orange); }
+.trivia-extraction-status svg { color: var(--orange); flex: 0 0 auto; }
+.trivia-extraction-status.current svg { color: #2f8b3c; }
+.trivia-extraction-status div { display: grid; gap: 2px; min-width: 0; }
+.trivia-extraction-status strong { font-size: 13px; overflow-wrap: anywhere; }
+.trivia-extraction-status span { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.trivia-extraction-status.compact { margin-top: 10px; }
 .mapping-row { background: #fff; border: 1px solid #d2d1cc; border-radius: 4px; display: grid; gap: 14px; grid-template-columns: minmax(240px, 1fr) 240px; margin-bottom: 10px; padding: 13px; }
 .label-meta { display: grid; gap: 7px; }
 .label-meta span { color: var(--muted); font-size: 12px; }

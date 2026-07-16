@@ -7,6 +7,7 @@ from duckdb import DuckDBPyConnection
 
 from .schemas import EpisodeMetadata, EpisodeUpdate, JobKind, JobStatus
 from .search import refresh_trivia_search_index, trivia_search_score_sql
+from .services.trivia_extractor import TRIVIA_EXTRACTION_RELEASE
 
 
 def now_utc() -> datetime:
@@ -474,6 +475,7 @@ def _episode_from_row(conn: DuckDBPyConnection, row: tuple[Any, ...]) -> dict[st
         "artwork_url": f"/public/episodes/{episode_id}/artwork" if row[24] else None,
         "speakers": list_episode_speakers(conn, episode_id),
         "active_job": get_active_episode_job(conn, episode_id),
+        "trivia_extraction": get_episode_trivia_extraction(conn, episode_id),
     }
 
 
@@ -651,6 +653,7 @@ def delete_episode(conn: DuckDBPyConnection, episode_id: str) -> bool:
     try:
         conn.execute("DELETE FROM episode_speaker_mappings WHERE episode_id = ?", [episode_id])
         conn.execute("DELETE FROM episode_speakers WHERE episode_id = ?", [episode_id])
+        conn.execute("DELETE FROM episode_trivia_extractions WHERE episode_id = ?", [episode_id])
         conn.execute("DELETE FROM trivia_extraction_candidates WHERE episode_id = ?", [episode_id])
         conn.execute("DELETE FROM trivia_items WHERE episode_id = ?", [episode_id])
         conn.execute("DELETE FROM transcripts WHERE episode_id = ?", [episode_id])
@@ -886,6 +889,96 @@ def save_trivia_items(
         refresh_trivia_search_index(conn)
 
 
+def record_episode_trivia_extraction(
+    conn: DuckDBPyConnection,
+    *,
+    episode_id: str,
+    release_version: str,
+    prompt_version: str | None,
+    model: str | None,
+    transcript_sha256: str | None,
+    job_id: str | None,
+    source_candidate_id: str | None = None,
+    extracted_at: datetime | None = None,
+) -> dict[str, Any]:
+    timestamp = now_utc()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO episode_trivia_extractions (
+            episode_id, release_version, prompt_version, model, transcript_sha256,
+            job_id, source_candidate_id, extracted_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
+            (SELECT created_at FROM episode_trivia_extractions WHERE episode_id = ?),
+            ?
+        ), ?)
+        """,
+        [
+            episode_id,
+            release_version,
+            prompt_version,
+            model,
+            transcript_sha256,
+            job_id,
+            source_candidate_id,
+            extracted_at or timestamp,
+            episode_id,
+            timestamp,
+            timestamp,
+        ],
+    )
+    metadata = get_episode_trivia_extraction(conn, episode_id)
+    if metadata is None:
+        raise RuntimeError(f"Trivia extraction metadata was not recorded for episode: {episode_id}")
+    return metadata
+
+
+def get_episode_trivia_extraction(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT episode_id, release_version, prompt_version, model, transcript_sha256,
+               job_id, source_candidate_id, extracted_at, created_at, updated_at
+        FROM episode_trivia_extractions
+        WHERE episode_id = ?
+        """,
+        [episode_id],
+    ).fetchone()
+    if row is None:
+        return {
+            "episode_id": episode_id,
+            "release_version": None,
+            "current_release_version": TRIVIA_EXTRACTION_RELEASE,
+            "is_current_release": False,
+            "prompt_version": None,
+            "model": None,
+            "transcript_sha256": None,
+            "job_id": None,
+            "source_candidate_id": None,
+            "extracted_at": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+    return _episode_trivia_extraction_from_row(row)
+
+
+def _episode_trivia_extraction_from_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    release_version = row[1]
+    return {
+        "episode_id": row[0],
+        "release_version": release_version,
+        "current_release_version": TRIVIA_EXTRACTION_RELEASE,
+        "is_current_release": release_version == TRIVIA_EXTRACTION_RELEASE,
+        "prompt_version": row[2],
+        "model": row[3],
+        "transcript_sha256": row[4],
+        "job_id": row[5],
+        "source_candidate_id": row[6],
+        "extracted_at": row[7],
+        "created_at": row[8],
+        "updated_at": row[9],
+    }
+
+
 def recompute_trivia_askers(conn: DuckDBPyConnection, episode_id: str) -> None:
     mapping = _speaker_id_mapping(conn, episode_id)
     rows = conn.execute(
@@ -979,6 +1072,7 @@ def create_trivia_candidate(
     *,
     episode_id: str,
     job_id: str,
+    release_version: str,
     prompt_version: str,
     model: str,
     transcript_sha256: str,
@@ -988,13 +1082,23 @@ def create_trivia_candidate(
     conn.execute(
         """
         INSERT INTO trivia_extraction_candidates (
-            id, episode_id, job_id, status, prompt_version, model,
+            id, episode_id, job_id, status, release_version, prompt_version, model,
             transcript_sha256, candidate_json, usage_json, error,
             created_at, updated_at, applied_at
         )
-        VALUES (?, ?, ?, 'running', ?, ?, ?, '{"trivia":[]}'::JSON, '{}'::JSON, NULL, ?, ?, NULL)
+        VALUES (?, ?, ?, 'running', ?, ?, ?, ?, '{"trivia":[]}'::JSON, '{}'::JSON, NULL, ?, ?, NULL)
         """,
-        [candidate_id, episode_id, job_id, prompt_version, model, transcript_sha256, timestamp, timestamp],
+        [
+            candidate_id,
+            episode_id,
+            job_id,
+            release_version,
+            prompt_version,
+            model,
+            transcript_sha256,
+            timestamp,
+            timestamp,
+        ],
     )
     candidate = get_trivia_candidate(conn, candidate_id)
     if candidate is None:
@@ -1005,7 +1109,7 @@ def create_trivia_candidate(
 def get_trivia_candidate(conn: DuckDBPyConnection, candidate_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT id, episode_id, job_id, status, prompt_version, model, transcript_sha256,
+        SELECT id, episode_id, job_id, status, release_version, prompt_version, model, transcript_sha256,
                candidate_json, usage_json, error, created_at, updated_at, applied_at
         FROM trivia_extraction_candidates
         WHERE id = ?
@@ -1018,7 +1122,7 @@ def get_trivia_candidate(conn: DuckDBPyConnection, candidate_id: str) -> dict[st
 def latest_trivia_candidate(conn: DuckDBPyConnection, episode_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT id, episode_id, job_id, status, prompt_version, model, transcript_sha256,
+        SELECT id, episode_id, job_id, status, release_version, prompt_version, model, transcript_sha256,
                candidate_json, usage_json, error, created_at, updated_at, applied_at
         FROM trivia_extraction_candidates
         WHERE episode_id = ? AND status IN ('running', 'ready', 'failed')
@@ -1085,6 +1189,17 @@ def apply_trivia_candidate(conn: DuckDBPyConnection, candidate_id: str) -> dict[
     try:
         save_trivia_items(conn, candidate["episode_id"], trivia_items, refresh_search=False)
         timestamp = now_utc()
+        record_episode_trivia_extraction(
+            conn,
+            episode_id=candidate["episode_id"],
+            release_version=candidate["release_version"],
+            prompt_version=candidate["prompt_version"],
+            model=candidate["model"],
+            transcript_sha256=candidate["transcript_sha256"],
+            job_id=candidate["job_id"],
+            source_candidate_id=candidate_id,
+            extracted_at=timestamp,
+        )
         conn.execute(
             """
             UPDATE trivia_extraction_candidates
@@ -1142,15 +1257,16 @@ def _trivia_candidate_from_row(conn: DuckDBPyConnection, row: tuple[Any, ...]) -
         "episode_id": row[1],
         "job_id": row[2],
         "status": row[3],
-        "prompt_version": row[4],
-        "model": row[5],
-        "transcript_sha256": row[6],
-        "candidate_json": _loads_json(row[7], {"trivia": []}),
-        "usage_json": _loads_json(row[8], {}),
-        "error": row[9],
-        "created_at": row[10],
-        "updated_at": row[11],
-        "applied_at": row[12],
+        "release_version": row[4],
+        "prompt_version": row[5],
+        "model": row[6],
+        "transcript_sha256": row[7],
+        "candidate_json": _loads_json(row[8], {"trivia": []}),
+        "usage_json": _loads_json(row[9], {}),
+        "error": row[10],
+        "created_at": row[11],
+        "updated_at": row[12],
+        "applied_at": row[13],
     }
     candidate["trivia"] = _candidate_trivia_items(conn, candidate)
     return candidate

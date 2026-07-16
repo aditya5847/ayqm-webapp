@@ -8,6 +8,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 
+TRIVIA_EXTRACTION_RELEASE = "V2.1"
 PROMPT_VERSION = "v2.1"
 DEFAULT_MAX_OUTPUT_TOKENS = 8192
 DEFAULT_CHUNK_TARGET_CHARS = 18000

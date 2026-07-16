@@ -527,17 +527,23 @@ def test_trivia_candidate_generation_reviews_before_apply(client, monkeypatch):
     review = client.get(f"/episodes/{episode['id']}/trivia-candidates/current").json()
     assert review["current_trivia"][0]["answer"] == "Original answer."
     assert review["candidate"]["status"] == "ready"
+    assert review["candidate"]["release_version"] == "V2.1"
     assert review["candidate"]["trivia"][0]["answer"] == "Candidate answer."
     assert review["candidate"]["trivia"][0]["asker"] == speaker
 
     apply = client.post(f"/episodes/{episode['id']}/trivia-candidates/{review['candidate']['id']}/apply")
     assert apply.status_code == 200
     assert apply.json()["status"] == "applied"
+    assert apply.json()["release_version"] == "V2.1"
     live = client.get(f"/episodes/{episode['id']}/trivia").json()
     assert len(live) == 1
     assert live[0]["id"] == f"{episode['id']}-trivia-0001"
     assert live[0]["answer"] == "Candidate answer."
-    assert client.get(f"/episodes/{episode['id']}").json()["is_published"] is False
+    episode_detail = client.get(f"/episodes/{episode['id']}").json()
+    assert episode_detail["is_published"] is False
+    assert episode_detail["trivia_extraction"]["release_version"] == "V2.1"
+    assert episode_detail["trivia_extraction"]["is_current_release"] is True
+    assert episode_detail["trivia_extraction"]["source_candidate_id"] == review["candidate"]["id"]
     assert client.get("/trivia/search", params={"q": "candidate search"}).json()["total_items"] == 1
 
 
@@ -648,7 +654,10 @@ def test_starting_trivia_extraction_unpublishes_episode(client, monkeypatch):
     )
     extraction = client.post(f"/episodes/{episode['id']}/extract-trivia", json={})
     assert extraction.status_code == 202
-    assert client.get(f"/episodes/{episode['id']}").json()["is_published"] is False
+    episode_detail = client.get(f"/episodes/{episode['id']}").json()
+    assert episode_detail["is_published"] is False
+    assert episode_detail["trivia_extraction"]["release_version"] == "V2.1"
+    assert episode_detail["trivia_extraction"]["is_current_release"] is True
     assert client.get(f"/public/episodes/{episode['id']}").status_code == 404
 
 
@@ -681,7 +690,9 @@ def test_episode_publication_and_permanent_delete(client):
     assert publish.status_code == 200
     assert publish.json()["is_published"] is True
     assert publish.json()["active_job"] is None
-    assert client.get(f"/public/episodes/{episode['id']}").status_code == 200
+    public_episode = client.get(f"/public/episodes/{episode['id']}")
+    assert public_episode.status_code == 200
+    assert "trivia_extraction" not in public_episode.json()
 
     unpublish = client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": False})
     assert unpublish.status_code == 200
@@ -693,7 +704,7 @@ def test_episode_publication_and_permanent_delete(client):
     assert not upload_dir.exists()
     assert not generated_dir.exists()
     with get_connection() as conn:
-        for table in ("episodes", "episode_speakers", "episode_speaker_mappings", "transcripts", "trivia_items", "jobs"):
+        for table in ("episodes", "episode_speakers", "episode_speaker_mappings", "episode_trivia_extractions", "transcripts", "trivia_items", "jobs"):
             assert conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {('id' if table == 'episodes' else 'episode_id')} = ?", [episode["id"]]).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM gemini_usage WHERE episode_id = ?", [episode["id"]]).fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM speakers WHERE id = ?", [speaker["id"]]).fetchone()[0] == 1

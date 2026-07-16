@@ -59,7 +59,7 @@ from ..services.speaker_labels import ensure_sample_clip, sanitize_label, speake
 from ..services.artwork import episode_artwork_response
 from ..workers import extract_trivia_candidate_job, extract_trivia_job, process_episode_job, transcribe_episode_job
 from ..storage import get_object_storage
-from ..services.trivia_extractor import PROMPT_VERSION
+from ..services.trivia_extractor import PROMPT_VERSION, TRIVIA_EXTRACTION_RELEASE
 
 router = APIRouter(prefix="/episodes", tags=["episodes"], dependencies=[Depends(require_admin)])
 
@@ -472,6 +472,7 @@ def start_trivia_candidate_generation(
             conn,
             episode_id=episode_id,
             job_id=job["id"],
+            release_version=TRIVIA_EXTRACTION_RELEASE,
             prompt_version=PROMPT_VERSION,
             model=model,
             transcript_sha256=_transcript_sha256(transcript),

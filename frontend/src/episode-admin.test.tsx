@@ -84,6 +84,31 @@ describe("episode workspace routing", () => {
     expect(screen.queryByText("0 items")).not.toBeInTheDocument();
   });
 
+  it("shows old trivia extraction release as update available", async () => {
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: { ...episode, trivia_extraction: oldExtraction } })));
+    renderApp("/admin/episodes/episode-1/overview");
+
+    expect(await screen.findByText("Release V1")).toBeInTheDocument();
+    expect(screen.getByText(/Update available/)).toBeInTheDocument();
+  });
+
+  it("shows current trivia extraction release", async () => {
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode })));
+    renderApp("/admin/episodes/episode-1/trivia");
+
+    expect(await screen.findByText("Release V2.1")).toBeInTheDocument();
+    expect(screen.getByText(/Current release/)).toBeInTheDocument();
+  });
+
+  it("shows unknown trivia extraction metadata without implying an update", async () => {
+    vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: { ...episode, trivia_extraction: unknownExtraction } })));
+    renderApp("/admin/episodes/episode-1/overview");
+
+    expect(await screen.findByText("Unknown release")).toBeInTheDocument();
+    expect(screen.getByText(/No extraction recorded/)).toBeInTheDocument();
+    expect(screen.queryByText(/Update available/)).not.toBeInTheDocument();
+  });
+
   it("hides zero trivia counts in the episodes table", async () => {
     const listEpisode = { ...episode, trivia_count: 0 };
     vi.stubGlobal("fetch", vi.fn(requestRouter({ episode: listEpisode, episodes: [listEpisode] })));
@@ -208,6 +233,7 @@ describe("trivia extraction review", () => {
         episode_id: "episode-1",
         job_id: "job-1",
         status: "ready",
+        release_version: "V2.1",
         prompt_version: "v2",
         model: "gemini-test",
         transcript_sha256: "hash",
@@ -280,8 +306,42 @@ const episode: Episode = {
   source_url: "https://example.com", extra_metadata: {},
   speakers: [{ id: "speaker-1", name: "Ada" }], audio_path: "/tmp/audio.mp3",
   audio_content_type: "audio/mpeg", transcript_status: "completed", trivia_status: "completed",
-  trivia_count: 1, is_published: false, active_job: null,
+  trivia_count: 1, trivia_extraction: {
+    episode_id: "episode-1",
+    release_version: "V2.1",
+    current_release_version: "V2.1",
+    is_current_release: true,
+    prompt_version: "v2.1",
+    model: "gemini-test",
+    transcript_sha256: "hash",
+    job_id: "job-1",
+    source_candidate_id: null,
+    extracted_at: "2026-01-02T00:00:00Z",
+    created_at: "2026-01-02T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z"
+  }, is_published: false, active_job: null,
   created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z"
+};
+
+const oldExtraction = {
+  ...episode.trivia_extraction,
+  release_version: "V1",
+  is_current_release: false,
+  prompt_version: null,
+  model: null,
+  transcript_sha256: null,
+  job_id: null,
+  extracted_at: "2026-01-01T00:00:00Z",
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z"
+};
+
+const unknownExtraction = {
+  ...oldExtraction,
+  release_version: null,
+  extracted_at: null,
+  created_at: null,
+  updated_at: null
 };
 
 const trivia: TriviaItem = {

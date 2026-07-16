@@ -110,6 +110,15 @@ def test_existing_episode_and_trivia_tables_migrate_as_drafts(tmp_path):
             )
             """
         )
+        conn.execute(
+            """
+            INSERT INTO trivia_items VALUES (
+                'trivia-1', 'episode-1', 'asked_question', 'Question?', 'Answer.',
+                '[]'::JSON, 0, 1, '00:00:00-00:00:01', '{}'::JSON,
+                NULL, 'high', current_timestamp
+            )
+            """
+        )
     finally:
         conn.close()
 
@@ -119,5 +128,9 @@ def test_existing_episode_and_trivia_tables_migrate_as_drafts(tmp_path):
         assert conn.execute("SELECT is_published FROM episodes").fetchone()[0] is False
         columns = {row[1] for row in conn.execute("PRAGMA table_info('trivia_items')").fetchall()}
         assert "asker_is_manual" in columns
+        metadata = conn.execute(
+            "SELECT release_version, prompt_version, model FROM episode_trivia_extractions WHERE episode_id = 'episode-1'"
+        ).fetchone()
+        assert metadata == ("V1", None, None)
     finally:
         conn.close()

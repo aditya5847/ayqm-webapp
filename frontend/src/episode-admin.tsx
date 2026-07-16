@@ -133,6 +133,7 @@ export function EpisodeOverviewTab() {
           <ProcessingMetric label="Trivia extraction" to={`/admin/episodes/${episodeId}/trivia`} value={<StatusPill value={episode.trivia_status} />} count={episode.trivia_count} />
           <Metric label="Website visibility" value={<StatusPill value={episode.is_published ? "visible" : "hidden"} />} />
         </div>
+        <TriviaExtractionStatus episode={episode} />
         {(activeJobId || episode.active_job) && <JobPanel job={currentJob} error={job.error} />}
         <div className="action-strip">
           <button className="button" type="button" onClick={() => transcribe.mutate()} disabled={transcribe.isPending || processing}><Mic2 size={16} />Transcribe</button>
@@ -290,7 +291,10 @@ export function EpisodeTriviaTab() {
   return (
     <section className="workspace-section">
       <div className="section-title-row">
-        <SectionHeading title="Extracted trivia" hint={episode.trivia_count > 0 ? `${episode.trivia_count} live items` : undefined} />
+        <div>
+          <SectionHeading title="Extracted trivia" hint={episode.trivia_count > 0 ? `${episode.trivia_count} live items` : undefined} />
+          <TriviaExtractionStatus episode={episode} compact />
+        </div>
         <button className="button primary" type="button" onClick={() => generate.mutate()} disabled={generate.isPending || processing || !mappingComplete}>
           {generate.isPending ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}Generate new extraction
         </button>
@@ -334,6 +338,24 @@ function TriviaReviewColumn({ title, items, speakers, editable = false }: { titl
     <div className="trivia-review-column">
       <div className="trivia-column-heading"><h3>{title}</h3><span>{items.length} {items.length === 1 ? "item" : "items"}</span></div>
       {items.length ? <div className="admin-trivia-list">{items.map(item => editable ? <TriviaItemCard key={item.id} item={item} speakers={speakers} /> : <TriviaPreviewCard key={item.id} item={item} />)}</div> : <Notice>No trivia extracted yet.</Notice>}
+    </div>
+  );
+}
+
+function TriviaExtractionStatus({ episode, compact = false }: { episode: Episode; compact?: boolean }) {
+  const metadata = episode.trivia_extraction;
+  const release = metadata.release_version ? `Release ${metadata.release_version}` : "Unknown release";
+  const status = metadata.release_version
+    ? metadata.is_current_release ? "Current release" : "Update available"
+    : "No extraction recorded";
+  const details = metadata.extracted_at ? formatDate(metadata.extracted_at) : "No extraction metadata";
+  return (
+    <div className={`trivia-extraction-status${metadata.is_current_release ? " current" : " outdated"}${compact ? " compact" : ""}`}>
+      <Sparkles size={16} />
+      <div>
+        <strong>{release}</strong>
+        <span>{status} · {details}</span>
+      </div>
     </div>
   );
 }

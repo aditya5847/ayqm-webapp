@@ -12,6 +12,7 @@ from .repositories import (
     mark_trivia_candidate_failed,
     mark_trivia_candidate_ready,
     now_utc,
+    record_episode_trivia_extraction,
     save_transcript,
     save_trivia_items,
     speaker_ids_for_episode,
@@ -19,7 +20,7 @@ from .repositories import (
 )
 from .schemas import ProcessRequest, TranscriptionRequest, TriviaExtractionRequest
 from .services.trivia import run_trivia_extraction
-from .services.trivia_extractor import PROMPT_VERSION
+from .services.trivia_extractor import PROMPT_VERSION, TRIVIA_EXTRACTION_RELEASE
 
 
 def run_transcription(*args, **kwargs):
@@ -143,6 +144,15 @@ def extract_trivia_job(
                 [episode_id, model, PROMPT_VERSION, transcript_sha256],
             ).fetchone()[0]
             if existing:
+                record_episode_trivia_extraction(
+                    conn,
+                    episode_id=episode_id,
+                    release_version=TRIVIA_EXTRACTION_RELEASE,
+                    prompt_version=PROMPT_VERSION,
+                    model=model,
+                    transcript_sha256=transcript_sha256,
+                    job_id=job_id,
+                )
                 update_job_status(conn, job_id, "succeeded")
                 return
             _check_gemini_budget(conn, settings)
@@ -156,6 +166,7 @@ def extract_trivia_job(
 
         with get_connection() as conn:
             save_trivia_items(conn, episode_id, trivia)
+            artifact = {}
             if _trivia_path.exists():
                 artifact = json.loads(_trivia_path.read_text(encoding="utf-8"))
                 _record_gemini_usage(
@@ -166,6 +177,15 @@ def extract_trivia_job(
                     transcript_sha256=transcript_sha256,
                     artifact=artifact,
                 )
+            record_episode_trivia_extraction(
+                conn,
+                episode_id=episode_id,
+                release_version=TRIVIA_EXTRACTION_RELEASE,
+                prompt_version=PROMPT_VERSION,
+                model=artifact.get("model") or model,
+                transcript_sha256=transcript_sha256,
+                job_id=job_id,
+            )
             update_job_status(conn, job_id, "succeeded")
     except Exception as exc:
         with get_connection() as conn:
@@ -253,6 +273,28 @@ def process_episode_job(
         with get_connection() as conn:
             save_transcript(conn, episode_id, str(transcript_path), transcript)
             save_trivia_items(conn, episode_id, trivia)
+            transcript_sha256 = _transcript_sha256(transcript)
+            model = request.trivia.model or settings.gemini_model or "gemini-3.1-flash-lite"
+            artifact = {}
+            if _trivia_path.exists():
+                artifact = json.loads(_trivia_path.read_text(encoding="utf-8"))
+                _record_gemini_usage(
+                    conn,
+                    job_id=job_id,
+                    episode_id=episode_id,
+                    model=model,
+                    transcript_sha256=transcript_sha256,
+                    artifact=artifact,
+                )
+            record_episode_trivia_extraction(
+                conn,
+                episode_id=episode_id,
+                release_version=TRIVIA_EXTRACTION_RELEASE,
+                prompt_version=PROMPT_VERSION,
+                model=artifact.get("model") or model,
+                transcript_sha256=transcript_sha256,
+                job_id=job_id,
+            )
             update_job_status(conn, job_id, "succeeded")
     except Exception as exc:
         with get_connection() as conn:

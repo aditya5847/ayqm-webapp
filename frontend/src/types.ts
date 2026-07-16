@@ -33,10 +33,26 @@ export interface Episode {
   transcript_status: string;
   trivia_status: string;
   trivia_count: number;
+  trivia_extraction: EpisodeTriviaExtraction;
   is_published?: boolean;
   active_job: Job | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface EpisodeTriviaExtraction {
+  episode_id: string;
+  release_version: string | null;
+  current_release_version: string;
+  is_current_release: boolean;
+  prompt_version: string | null;
+  model: string | null;
+  transcript_sha256: string | null;
+  job_id: string | null;
+  source_candidate_id: string | null;
+  extracted_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface AdminEpisodePage {
@@ -179,6 +195,7 @@ export interface TriviaExtractionCandidate {
   episode_id: string;
   job_id: string;
   status: TriviaCandidateStatus;
+  release_version: string;
   prompt_version: string;
   model: string;
   transcript_sha256: string;

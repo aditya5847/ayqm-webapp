@@ -4,6 +4,13 @@ This document records historical trivia extraction prompts for review. The
 application does not import or parse this file; runtime code keeps only the
 active prompt.
 
+Admin releases are manually named and shown only in the authenticated admin UI.
+The current admin release is `V2.1`. Existing production trivia before release
+tracking is backfilled as `V1`. Before making a significant extractor change
+to prompt, chunking, filtering, timestamp handling, or extraction logic, ask
+whether it should become a new manually named release and update runtime code
+and this history together.
+
 ## v1 - Single-Pass Basic Trivia Extraction
 
 Date added: before prompt history tracking
