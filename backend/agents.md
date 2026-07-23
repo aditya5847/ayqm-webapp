@@ -46,9 +46,12 @@ known episode speakers.
   environment for trivia extraction. Put it in the repo-root `.env` for local
   development; do not commit `.env`.
 - Gemini trivia extraction uses the active prompt in code, chunked transcript
-  processing, and prompt version metadata. Keep historical prompt text in
-  `docs/trivia-prompt-history.md`; update that doc whenever the active prompt
-  changes.
+  processing, prompt version metadata, and a manually named admin release.
+  Future significant changes to prompt, chunking, filtering, timestamp handling,
+  or extraction logic must prompt the user to decide whether to create a new
+  release before changing behavior. Keep historical prompt text in
+  `docs/trivia-prompt-history.md`; when a new release is chosen, update the
+  active code release/prompt and that doc together.
 - The local `.env` is loaded by app settings, but `ayqm-transcribe` ultimately
   reads Gemini credentials from `os.environ`, so make sure the server process is
   started with `.env` values loaded.

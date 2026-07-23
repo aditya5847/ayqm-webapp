@@ -69,7 +69,10 @@ when working deeply in those areas. This root file is the project-wide contract.
   mapping.
 - Gemini trivia extraction is chunked, uses the active prompt in code, and
   records historical prompt text in `docs/trivia-prompt-history.md`. Future
-  prompt changes should update both the active code prompt and that history doc.
+  significant changes to prompt, chunking, filtering, timestamp handling, or
+  extraction logic must prompt the user to decide whether to create a new
+  manually named admin release before changing behavior. If a new release is
+  chosen, update both the active code release/prompt and that history doc.
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` is required for trivia extraction and
   rephrasing. Keep credentials in local environment configuration; never commit
   them.

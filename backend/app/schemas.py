@@ -93,6 +93,21 @@ class JobOut(BaseModel):
     attempts: int = 0
 
 
+class EpisodeTriviaExtractionOut(BaseModel):
+    episode_id: str
+    release_version: str | None = None
+    current_release_version: str
+    is_current_release: bool
+    prompt_version: str | None = None
+    model: str | None = None
+    transcript_sha256: str | None = None
+    job_id: str | None = None
+    source_candidate_id: str | None = None
+    extracted_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class EpisodeOut(BaseModel):
     id: str
     episode_title: str
@@ -114,6 +129,7 @@ class EpisodeOut(BaseModel):
     transcript_status: str
     trivia_status: str
     trivia_count: int
+    trivia_extraction: EpisodeTriviaExtractionOut
     is_published: bool
     active_job: JobOut | None = None
     created_at: datetime
@@ -202,6 +218,7 @@ class TriviaExtractionCandidateOut(BaseModel):
     episode_id: str
     job_id: str
     status: TriviaCandidateStatus
+    release_version: str
     prompt_version: str
     model: str
     transcript_sha256: str

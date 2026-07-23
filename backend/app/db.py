@@ -202,6 +202,7 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                     episode_id VARCHAR NOT NULL,
                     job_id VARCHAR NOT NULL,
                     status VARCHAR NOT NULL,
+                    release_version VARCHAR NOT NULL DEFAULT 'V1',
                     prompt_version VARCHAR NOT NULL,
                     model VARCHAR NOT NULL,
                     transcript_sha256 VARCHAR NOT NULL,
@@ -214,6 +215,24 @@ def initialize_database(database_path: Path | str | None = None) -> None:
                 )
                 """
             )
+            _migrate_trivia_candidate_columns(conn)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episode_trivia_extractions (
+                    episode_id VARCHAR PRIMARY KEY,
+                    release_version VARCHAR NOT NULL,
+                    prompt_version VARCHAR,
+                    model VARCHAR,
+                    transcript_sha256 VARCHAR,
+                    job_id VARCHAR,
+                    source_candidate_id VARCHAR,
+                    extracted_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+            _backfill_episode_trivia_extractions(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sunday_quizzes (
@@ -325,6 +344,36 @@ def _migrate_job_columns(conn: DuckDBPyConnection) -> None:
     _ensure_column(conn, "jobs", "artifact_key", "VARCHAR")
     _ensure_column(conn, "jobs", "artifact_sha256", "VARCHAR")
     _ensure_column(conn, "jobs", "updated_at", "TIMESTAMP")
+
+
+def _migrate_trivia_candidate_columns(conn: DuckDBPyConnection) -> None:
+    if not _table_exists(conn, "trivia_extraction_candidates"):
+        return
+    _ensure_column(conn, "trivia_extraction_candidates", "release_version", "VARCHAR DEFAULT 'V1'")
+    conn.execute("UPDATE trivia_extraction_candidates SET release_version = 'V1' WHERE release_version IS NULL")
+
+
+def _backfill_episode_trivia_extractions(conn: DuckDBPyConnection) -> None:
+    if not _table_exists(conn, "episode_trivia_extractions"):
+        return
+    conn.execute(
+        """
+        INSERT INTO episode_trivia_extractions (
+            episode_id, release_version, prompt_version, model, transcript_sha256,
+            job_id, source_candidate_id, extracted_at, created_at, updated_at
+        )
+        SELECT
+            e.id, 'V1', NULL, NULL, NULL, NULL, NULL,
+            COALESCE(MAX(ti.created_at), e.updated_at),
+            current_timestamp,
+            current_timestamp
+        FROM episodes e
+        JOIN trivia_items ti ON ti.episode_id = e.id
+        LEFT JOIN episode_trivia_extractions ete ON ete.episode_id = e.id
+        WHERE ete.episode_id IS NULL
+        GROUP BY e.id, e.updated_at
+        """
+    )
 
 
 def _migrate_sunday_quiz_question_columns(conn: DuckDBPyConnection) -> None:

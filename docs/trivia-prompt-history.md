@@ -4,6 +4,42 @@ This document records historical trivia extraction prompts for review. The
 application does not import or parse this file; runtime code keeps only the
 active prompt.
 
+Admin releases are manually named and shown only in the authenticated admin UI.
+The current admin release is `V2.1`. Existing production trivia before release
+tracking is backfilled as `V1`. Before making a significant extractor change
+to prompt, chunking, filtering, timestamp handling, or extraction logic, ask
+whether it should become a new manually named release and update runtime code
+and this history together.
+
+## v1 - Single-Pass Basic Trivia Extraction
+
+Date added: before prompt history tracking
+
+Runtime settings:
+- Model: `AYQM_GEMINI_MODEL` when set, otherwise the configured Gemini default
+- Temperature: `0.1`
+- Default max output tokens: `8192`
+- Extraction mode: single full-transcript request
+
+Rationale:
+- Original compact prompt for extracting asked questions and mentioned trivia
+  from a completed transcript.
+- No chunking, no explicit quiz archetypes, and only brief keyword guidance.
+
+Prompt:
+
+```text
+Extract trivia from this podcast transcript.
+
+Return high-recall trivia items of two types:
+- asked_question: a quiz/trivia question actually asked in the episode.
+- mentioned_trivia: a self-contained factual claim mentioned in conversation that could plausibly become a quiz question.
+
+Do not extract hints, transcript excerpts, or segment ids. Preserve asked questions when possible and include their answers when present. For mentioned trivia, write a concise quiz-style question and put the fact in the answer. Use transcript-relative timestamps. Speaker fields must use only labels present in the transcript. Keep keywords short and useful for search.
+
+Transcript:
+```
+
 ## v2 - Chunked Transcript-Grounded Quiz Extraction
 
 Date added: 2026-07-15
@@ -89,3 +125,34 @@ A valid trivia item should be understandable without reading the transcript. The
 
 Transcript chunk:
 ```
+
+## v2.1 - Absolute Chunk Timestamp Clarification
+
+Date added: 2026-07-15
+
+Runtime settings:
+- Model: `AYQM_GEMINI_MODEL` when set, otherwise `gemini-3.1-flash-lite`
+- Temperature: `0.1`
+- Default max output tokens: `8192`
+- Extraction mode: chunked transcript processing with merged results
+
+Rationale:
+- Preserve the v2 quiz and keyword behavior.
+- Make chunked extraction timestamp-safe by telling Gemini that chunk transcript
+  lines use absolute full-episode timestamps.
+- Prevent chunk-relative output such as `00:00:05` for trivia extracted from a
+  later transcript chunk.
+
+Prompt change:
+
+```text
+The transcript chunk below is one slice of a longer episode. Every timestamp shown in the transcript lines is an absolute full-episode timestamp, not a chunk-relative timestamp. This chunk covers {chunk_start_display}-{chunk_end_display} on the full episode timeline. Return timestamps on that same full-episode timeline. Do not reset timestamps to 00:00:00 for the start of this chunk.
+```
+
+Runtime post-processing:
+- Preserve returned timestamps that already fall inside the source chunk's
+  full-episode timestamp range.
+- Offset likely chunk-relative timestamps by the source chunk's absolute start.
+- Regenerate the timestamp display from corrected numeric values.
+- Drop returned trivia items whose timestamps cannot be reconciled with the
+  source chunk.
