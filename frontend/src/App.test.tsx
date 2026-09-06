@@ -118,6 +118,23 @@ describe("public experience", () => {
     expect(artwork.getAttribute("src")).toContain("Podcast%20Thumbnail.jpg");
   });
 
+  it("starts the shared player from an episode page and shows the sticky player", async () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      return jsonResponse(url.endsWith("/trivia") ? [] : publicEpisode("episode-1", "Playable episode", 1));
+    }));
+    renderApp("/episodes/episode-1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Play episode" }));
+    expect(await screen.findByRole("complementary", { name: "Audio player" })).toBeInTheDocument();
+    fireEvent.play(document.querySelector("audio")!);
+    expect(screen.getAllByRole("button", { name: "Pause episode" })).toHaveLength(2);
+    expect(document.querySelector("audio")).toHaveAttribute("src", "/api/public/episodes/episode-1/audio");
+  });
+
   it("hides the contact footer from rendered episode descriptions", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

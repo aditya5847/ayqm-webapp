@@ -215,6 +215,23 @@ def test_public_episode_artwork_is_publication_gated_and_served_locally(client):
     assert artwork.headers["content-type"] == "image/jpeg"
 
 
+def test_public_episode_audio_is_publication_gated_and_served_locally(client):
+    speaker = _speaker(client)
+    episode = _episode(client, [speaker["id"]])
+
+    assert client.get(f"/public/episodes/{episode['id']}/audio").status_code == 404
+    assert client.patch(f"/episodes/{episode['id']}/publication", json={"is_published": True}).status_code == 200
+
+    audio = client.get(f"/public/episodes/{episode['id']}/audio")
+    assert audio.status_code == 200
+    assert audio.content == b"audio"
+    assert audio.headers["content-type"] == "audio/mpeg"
+
+    with get_connection() as conn:
+        conn.execute("UPDATE episodes SET audio_path = ? WHERE id = ?", ["data/uploads/missing.mp3", episode["id"]])
+    assert client.get(f"/public/episodes/{episode['id']}/audio").status_code == 404
+
+
 def test_trivia_edit_rephrase_and_delete(client, monkeypatch):
     speaker = _speaker(client)
     episode = _episode(client, [speaker["id"]])
