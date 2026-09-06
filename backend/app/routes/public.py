@@ -13,6 +13,7 @@ from ..repositories import (
 )
 from ..schemas import PublicEpisodeOut, PublicEpisodePageOut, PublicTriviaItemOut, SpeakerOut
 from ..services.artwork import episode_artwork_response
+from ..services.audio import episode_audio_response
 
 
 router = APIRouter(prefix="/public", tags=["public"])
@@ -57,6 +58,17 @@ def public_episode_artwork(episode_id: str):
         raise HTTPException(status_code=404, detail="Episode artwork not found")
 
     return episode_artwork_response(episode, settings)
+
+
+@router.get("/episodes/{episode_id}/audio", response_model=None)
+def public_episode_audio(episode_id: str):
+    settings = get_settings()
+    with get_connection() as conn:
+        episode = get_episode(conn, episode_id)
+    if episode is None or not episode["is_published"]:
+        raise HTTPException(status_code=404, detail="Episode audio not found")
+
+    return episode_audio_response(episode, settings)
 
 
 @router.get("/episodes/{episode_id}/trivia", response_model=list[PublicTriviaItemOut])

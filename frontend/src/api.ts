@@ -54,6 +54,10 @@ export function apiAssetUrl(path: string | null): string | null {
   return `${API_BASE}${path}`;
 }
 
+export function publicEpisodeAudioUrl(episodeId: string): string {
+  return `${API_BASE}/public/episodes/${encodeURIComponent(episodeId)}/audio`;
+}
+
 export function buildEpisodeFormData(input: EpisodeUploadInput): FormData {
   const form = new FormData();
   form.set("file", input.file);

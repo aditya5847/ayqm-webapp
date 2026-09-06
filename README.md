@@ -59,6 +59,7 @@ Public, unauthenticated reads expose only published content:
 
 - `GET /public/episodes`
 - `GET /public/episodes/{episode_id}`
+- `GET /public/episodes/{episode_id}/audio`
 - `GET /public/episodes/{episode_id}/trivia`
 - `GET /public/trivia?limit=24&offset=0`
 

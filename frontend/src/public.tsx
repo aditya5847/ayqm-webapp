@@ -1,11 +1,11 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, FormEvent, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, RefreshCw, Search, Trophy, X, XCircle, Youtube } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, Facebook, Instagram, Mail, Menu, MessageCircle, Pause, Play, RefreshCw, Search, Trophy, Volume2, VolumeX, X, XCircle, Youtube } from "lucide-react";
 import { Link, NavLink, Outlet, useParams, useSearchParams } from "react-router-dom";
 import type { PublicEpisode, PublicSpeaker, PublicSundayQuizQuestion, PublicSundayQuizSummary, TriviaItem } from "./types";
 import {
-  apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, getPublicSundayQuiz, listPublicEpisodePage,
+  apiAssetUrl, getPublicEpisode, getPublicEpisodeTrivia, getPublicSundayQuiz, listPublicEpisodePage, publicEpisodeAudioUrl,
   listPublicEpisodes, listPublicSpeakers, listPublicSundayQuizzes, listRandomPublicTrivia, searchRandomPublicTrivia,
   submitSundayQuizAttempt
 } from "./api";
@@ -15,6 +15,10 @@ import logoUrl from "../references/Logo.png";
 import thumbnailUrl from "../references/Podcast Thumbnail.jpg";
 
 export function PublicLayout() {
+  return <PublicAudioProvider><PublicSite /></PublicAudioProvider>;
+}
+
+function PublicSite() {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="public-shell">
@@ -39,8 +43,190 @@ export function PublicLayout() {
         <p>Questions worth asking. Answers worth remembering.</p>
         <div className="footer-links"><Link to="/about">About us</Link></div>
       </footer>
+      <StickyAudioPlayer />
     </div>
   );
+}
+
+type AudioEpisode = Pick<PublicEpisode, "id" | "episode_title" | "episode_number" | "episode_kind" | "artwork_url" | "source_url">;
+type AudioPlayerContextValue = {
+  activeEpisode: AudioEpisode | null;
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  volume: number;
+  playbackRate: number;
+  error: string | null;
+  playEpisode: (episode: AudioEpisode) => void;
+  togglePlayback: () => void;
+  seek: (time: number) => void;
+  setVolume: (volume: number) => void;
+  setPlaybackRate: (rate: number) => void;
+  close: () => void;
+};
+
+const AudioPlayerContext = createContext<AudioPlayerContextValue | null>(null);
+
+function useAudioPlayer(): AudioPlayerContextValue {
+  const value = useContext(AudioPlayerContext);
+  if (!value) throw new Error("Audio player must be used inside the public layout");
+  return value;
+}
+
+function PublicAudioProvider({ children }: { children: React.ReactNode }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const playAfterLoad = useRef(false);
+  const [activeEpisode, setActiveEpisode] = useState<AudioEpisode | null>(null);
+  const [sourceMode, setSourceMode] = useState<"stored" | "fallback">("stored");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolumeState] = useState(1);
+  const [playbackRate, setPlaybackRateState] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+
+  const source = activeEpisode
+    ? sourceMode === "fallback" && activeEpisode.source_url
+      ? activeEpisode.source_url
+      : publicEpisodeAudioUrl(activeEpisode.id)
+    : null;
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !source) return;
+    audio.src = source;
+    audio.volume = volume;
+    audio.playbackRate = playbackRate;
+    audio.load();
+    if (playAfterLoad.current) {
+      playAfterLoad.current = false;
+      void audio.play().catch(() => setError("Press play to start this episode."));
+    }
+  }, [source]);
+
+  const playEpisode = (episode: AudioEpisode) => {
+    const audio = audioRef.current;
+    if (activeEpisode?.id === episode.id) {
+      togglePlayback();
+      return;
+    }
+    playAfterLoad.current = true;
+    setActiveEpisode(episode);
+    setSourceMode("stored");
+    setError(null);
+    setCurrentTime(0);
+    setDuration(0);
+    if (audio) audio.pause();
+  };
+
+  const togglePlayback = () => {
+    const audio = audioRef.current;
+    if (!audio || !activeEpisode) return;
+    if (audio.paused) void audio.play().catch(() => setError("Press play to start this episode."));
+    else audio.pause();
+  };
+
+  const seek = (time: number) => {
+    if (audioRef.current) audioRef.current.currentTime = time;
+    setCurrentTime(time);
+  };
+
+  const setVolume = (nextVolume: number) => {
+    setVolumeState(nextVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = nextVolume;
+      audioRef.current.muted = nextVolume === 0;
+    }
+  };
+
+  const setPlaybackRate = (rate: number) => {
+    setPlaybackRateState(rate);
+    if (audioRef.current) audioRef.current.playbackRate = rate;
+  };
+
+  const close = () => {
+    audioRef.current?.pause();
+    setActiveEpisode(null);
+    setIsPlaying(false);
+    setError(null);
+  };
+
+  const handleError = () => {
+    if (sourceMode === "stored" && activeEpisode?.source_url) {
+      setSourceMode("fallback");
+      setError("Stored audio is unavailable; trying the external source.");
+      playAfterLoad.current = isPlaying;
+    } else {
+      setIsPlaying(false);
+      setError("Audio is unavailable for this episode.");
+    }
+  };
+
+  const value: AudioPlayerContextValue = {
+    activeEpisode, isPlaying, currentTime, duration, volume, playbackRate, error,
+    playEpisode, togglePlayback, seek, setVolume, setPlaybackRate, close
+  };
+
+  return <AudioPlayerContext.Provider value={value}>
+    {children}
+    <audio
+      ref={audioRef}
+      className="screen-reader-audio"
+      onPlay={() => setIsPlaying(true)}
+      onPause={() => setIsPlaying(false)}
+      onTimeUpdate={event => setCurrentTime(event.currentTarget.currentTime)}
+      onLoadedMetadata={event => { setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0); setError(null); }}
+      onEnded={() => setIsPlaying(false)}
+      onError={handleError}
+    />
+  </AudioPlayerContext.Provider>;
+}
+
+function StickyAudioPlayer() {
+  const player = useAudioPlayer();
+  if (!player.activeEpisode) return null;
+  return <aside className="audio-player-sticky" aria-label="Audio player">
+    <div className="audio-player-sticky-inner">
+      <EpisodeArtwork episode={player.activeEpisode} alt="" className="audio-player-artwork" />
+      <div className="audio-player-sticky-title"><span className="eyebrow">Now playing</span><strong>{player.activeEpisode.episode_title}</strong></div>
+      <PlayerControls compact />
+      <button className="icon-button" type="button" aria-label="Close audio player" onClick={player.close}><X size={18} /></button>
+    </div>
+  </aside>;
+}
+
+function EpisodePlayer({ episode }: { episode: PublicEpisode }) {
+  const player = useAudioPlayer();
+  const active = player.activeEpisode?.id === episode.id;
+  return <div className="audio-player-inline">
+    <div className="audio-player-inline-heading"><span className="eyebrow">Listen here</span></div>
+    {active ? <PlayerControls /> : <button className="button primary" type="button" onClick={() => player.playEpisode(episode)}><Play size={17} />Play episode</button>}
+    {active && player.error && <p className="audio-player-message" role="status">{player.error}{episode.source_url && player.error.includes("unavailable") && <> <a href={episode.source_url} target="_blank" rel="noreferrer">Open external source</a></>}</p>}
+  </div>;
+}
+
+function PlayerControls({ compact = false }: { compact?: boolean }) {
+  const player = useAudioPlayer();
+  const max = player.duration || 0;
+  return <div className={`audio-player-controls${compact ? " compact" : ""}`}>
+    <button className="icon-button player-play" type="button" onClick={player.togglePlayback} aria-label={player.isPlaying ? "Pause episode" : "Play episode"}>
+      {player.isPlaying ? <Pause size={compact ? 17 : 20} /> : <Play size={compact ? 17 : 20} />}
+    </button>
+    <span className="audio-time">{formatAudioTime(player.currentTime)}</span>
+    <input className="audio-seek" type="range" min="0" max={max} step="0.1" value={Math.min(player.currentTime, max)} aria-label="Seek episode" onChange={event => player.seek(Number(event.target.value))} disabled={!max} />
+    <span className="audio-time">-{formatAudioTime(Math.max(0, player.duration - player.currentTime))}</span>
+    {!compact && <>
+      <button className="icon-button" type="button" aria-label={player.volume ? "Mute episode" : "Unmute episode"} onClick={() => player.setVolume(player.volume ? 0 : 1)}>{player.volume ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+      <input className="audio-volume" type="range" min="0" max="1" step="0.05" value={player.volume} aria-label="Episode volume" onChange={event => player.setVolume(Number(event.target.value))} />
+      <label className="audio-speed"><span className="screen-reader-only">Playback speed</span><select aria-label="Playback speed" value={player.playbackRate} onChange={event => player.setPlaybackRate(Number(event.target.value))}>{[0.75, 1, 1.25, 1.5, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}</select></label>
+    </>}
+  </div>;
+}
+
+function formatAudioTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
 
 export function HomePage() {
@@ -67,7 +253,7 @@ export function HomePage() {
                   <EpisodeDescription value={latestDescription} compact />
                   <div className="hero-actions">
                     <Link className="button primary" to={`/episodes/${latest.id}`}>Explore episode <ArrowRight size={18} /></Link>
-                    {latest.source_url && <a className="button light" href={latest.source_url} target="_blank" rel="noreferrer">Listen <ExternalLink size={17} /></a>}
+                    <HomePlayButton episode={latest} />
                   </div>
                 </div>
               </div>
@@ -120,7 +306,7 @@ export function PublicEpisodePage() {
           <>
             <header className="episode-masthead">
               <EpisodeArtwork episode={item} alt={`${item.episode_title} artwork`} />
-              <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><EpisodeDescription value={item.episode_description} /><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p>{item.source_url && <a className="button primary" href={item.source_url} target="_blank" rel="noreferrer">Listen to episode <ExternalLink size={17} /></a>}</div>
+              <div><p className="eyebrow">{episodeLabel(item)}</p><h1>{item.episode_title}</h1><p className="episode-date">{formatDate(item.published_at)}</p><EpisodeDescription value={item.episode_description} /><p className="speaker-line">With {item.speakers.map((speaker) => speaker.name).join(", ") || "the AYQM panel"}</p><EpisodePlayer episode={item} /></div>
             </header>
             <section className="editorial-section"><div className="section-title-row"><div><p className="eyebrow">Play along</p><h2>Trivia from this episode</h2></div></div><QueryState query={trivia} feature="Episode trivia" empty="No trivia is available for this episode.">{(items) => <TriviaGrid items={items} />}</QueryState></section>
           </>
@@ -128,6 +314,12 @@ export function PublicEpisodePage() {
       </QueryState>
     </div>
   );
+}
+
+function HomePlayButton({ episode }: { episode: PublicEpisode }) {
+  const player = useAudioPlayer();
+  const active = player.activeEpisode?.id === episode.id;
+  return <button className="button light" type="button" onClick={() => player.playEpisode(episode)}>{active && player.isPlaying ? <Pause size={17} /> : <Play size={17} />}{active && player.isPlaying ? "Pause" : "Play"}</button>;
 }
 
 export function PublicTriviaPage() {
@@ -432,7 +624,7 @@ const demoHeroDescription = [
   "Remove this once you are happy with the spacing."
 ].join(" ");
 
-function EpisodeArtwork({ episode, alt, className = "" }: { episode?: PublicEpisode; alt: string; className?: string }) {
+function EpisodeArtwork({ episode, alt, className = "" }: { episode?: Pick<PublicEpisode, "artwork_url">; alt: string; className?: string }) {
   const artwork = apiAssetUrl(episode?.artwork_url ?? null);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [artwork]);
