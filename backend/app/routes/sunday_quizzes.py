@@ -32,6 +32,9 @@ public_router = APIRouter(prefix="/public/sunday-quizzes", tags=["public-sunday-
 
 
 QUESTION_COUNT = 10
+ADMIN_ASSET_CACHE_CONTROL = "private, no-store"
+PUBLIC_ASSET_REDIRECT_CACHE_CONTROL = "public, max-age=300"
+PUBLIC_ASSET_FILE_CACHE_CONTROL = "public, max-age=86400"
 
 
 def _loads_json(value, default):
@@ -475,14 +478,17 @@ def _asset_response(asset_id: str, *, public: bool):
         raise HTTPException(status_code=404, detail="Sunday quiz asset not found")
     object_key, content_type, _status = row
     storage = get_object_storage(settings)
-    headers = {"Cache-Control": "public, max-age=86400"}
     signed_url = storage.presign_get(object_key)
     if signed_url:
+        cache_control = PUBLIC_ASSET_REDIRECT_CACHE_CONTROL if public else ADMIN_ASSET_CACHE_CONTROL
+        headers = {"Cache-Control": cache_control}
         return RedirectResponse(signed_url, status_code=307, headers=headers)
     root = settings.upload_root.resolve()
     path = (root / object_key).resolve()
     if root not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="Sunday quiz asset not found")
+    cache_control = PUBLIC_ASSET_FILE_CACHE_CONTROL if public else ADMIN_ASSET_CACHE_CONTROL
+    headers = {"Cache-Control": cache_control}
     return FileResponse(path, media_type=content_type or "application/octet-stream", headers=headers)
 
 

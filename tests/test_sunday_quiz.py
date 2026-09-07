@@ -78,7 +78,7 @@ def test_sunday_quiz_create_validate_publish_and_play(client):
     assert result["review"][0]["explanation"] == "Explanation 1"
 
 
-def test_sunday_quiz_assets_are_images_and_public_only_after_publish(client):
+def test_sunday_quiz_assets_are_images_and_public_only_after_publish(client, monkeypatch):
     response = client.post("/sunday-quizzes", json={"quiz_date": "2026-01-11", "theme": "Cinema"})
     assert response.status_code == 201
     quiz = response.json()
@@ -106,8 +106,26 @@ def test_sunday_quiz_assets_are_images_and_public_only_after_publish(client):
     response = client.get(admin_asset_path)
     assert response.status_code == 200
     assert response.content == b"fake png"
+    assert response.headers["cache-control"] == "private, no-store"
 
     _fill_and_publish_quiz(client, quiz)
     response = client.get(public_asset_path)
     assert response.status_code == 200
     assert response.content == b"fake png"
+    assert response.headers["cache-control"] == "public, max-age=86400"
+
+    class SignedStorage:
+        def presign_get(self, _key):
+            return "https://r2.example.test/signed-image"
+
+    monkeypatch.setattr("backend.app.routes.sunday_quizzes.get_object_storage", lambda _settings: SignedStorage())
+
+    response = client.get(admin_asset_path, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "https://r2.example.test/signed-image"
+    assert response.headers["cache-control"] == "private, no-store"
+
+    response = client.get(public_asset_path, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "https://r2.example.test/signed-image"
+    assert response.headers["cache-control"] == "public, max-age=300"

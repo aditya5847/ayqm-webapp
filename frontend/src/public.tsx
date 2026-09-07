@@ -441,8 +441,8 @@ function PublicSundayQuizQuestionCard({
       </div>
       {review && <div className="sunday-review">
         <p>{review.correct ? <CheckCircle2 size={18} /> : <XCircle size={18} />}{review.correct ? "Correct" : `Correct answer: ${review.correct_option_text}`}</p>
-        {review.explanation && <p>{review.explanation}</p>}
         {apiAssetUrl(review.answer_image_url) && <img src={apiAssetUrl(review.answer_image_url) ?? ""} alt="" />}
+        {review.explanation && <p>{review.explanation}</p>}
       </div>}
     </div>
   </article>;
